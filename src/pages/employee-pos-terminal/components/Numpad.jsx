@@ -54,7 +54,7 @@ const Numpad = ({
       </div>
 
       {/* Number Pad */}
-      <div className="grid grid-cols-3 gap-3 mb-6 flex-1">
+      <div className="grid grid-cols-3 gap-3 mb-6">
         {numbers?.flat()?.map((num) => (
           <button
             key={num}
