@@ -1,0 +1,73 @@
+# LAUNDRY KING POS - ARCHITECTURAL DOCUMENTATION
+
+## Core Principles
+
+### Offline-First Architecture
+
+- All operations MUST work offline by default
+- Data is stored locally first (localStorage/IndexedDB)
+- Server sync ONLY happens when "Save Progress" is explicitly triggered
+- No automatic server connections or background syncs
+
+### Database Structure and Relationships
+
+```
+user_profiles (Central Employee Table)
+└── id (uuid) PRIMARY KEY
+└── full_name, email, role
+
+employee_timesheets
+└── employee_id → user_profiles.id
+└── Tracks: clock in/out times, work duration
+
+pos_sessions
+└── employee_id → user_profiles.id
+└── Tracks: cash, totals, session status
+    ├── pos_inventory_items
+    │   └── pos_session_id → pos_sessions.id
+    │   └── Tracks: item counts, sales, stock
+    │
+    └── pos_wash_dry_tickets
+        └── pos_session_id → pos_sessions.id
+        └── Tracks: ticket numbers, amounts
+```
+
+### Data Flow
+
+1. All operations save to localStorage first
+2. "Save Progress" button triggers:
+   - Get employee_id from user_profiles
+   - Create/update pos_session
+   - Link inventory items and tickets to session
+   - Update employee timesheet if needed
+
+### Validation Rules
+
+1. Every operation must work without server connection
+2. All server sync operations must be atomic
+3. All relationships must be preserved during sync
+4. Data integrity must be maintained offline and online
+
+## Implementation Details
+
+### Local Storage Structure
+
+- `timesheet_[employeeId]_[date]`: Daily timesheet data
+- `pos_offline_saves`: Pending POS session data
+- `cached_employees`: Employee list for offline access
+- `cached_employee_options`: Employee ID mappings
+
+### Sync Process
+
+1. Validate local data integrity
+2. Get or create POS session
+3. Sync inventory items
+4. Sync wash/dry tickets
+5. Update timesheet records
+6. Mark local data as synced
+
+### Error Handling
+
+- All operations must have fallback to local storage
+- Failed syncs must preserve local data
+- Clear error messages for offline vs. sync failures
