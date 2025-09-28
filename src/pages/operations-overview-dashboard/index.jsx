@@ -725,7 +725,7 @@ const OperationsOverviewDashboard = () => {
               disabled={loading}
             >
               <option value="">All Employees</option>
-              {employees?.map(emp => (
+              {employees?.filter(emp => emp.role === 'employee').map(emp => (
                 <option key={emp.id} value={emp.id}>{emp.full_name}</option>
               ))}
             </select>
