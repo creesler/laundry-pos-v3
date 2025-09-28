@@ -1382,6 +1382,27 @@ const OperationsOverviewDashboard = () => {
             <div className="text-lg font-bold text-gray-700">Employee: {excelSession.user_profiles?.full_name || 'N/A'}</div>
           )}
         </div>
+        {/* Session selection dropdown if multiple sessions exist */}
+        {excelSessions && excelSessions.length > 1 && (
+          <div className="mb-4 flex items-center space-x-2">
+            <label className="font-semibold text-gray-700">Select Session:</label>
+            <select
+              className="border border-gray-300 rounded px-3 py-2 text-sm"
+              value={excelSession?.id || ''}
+              onChange={e => {
+                const selected = excelSessions.find(s => s.id === e.target.value);
+                setExcelSession(selected);
+              }}
+            >
+              {excelSessions.map(session => (
+                <option key={session.id} value={session.id}>
+                  {session.user_profiles?.full_name || 'N/A'}
+                  {session.created_at ? ` (${new Date(session.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })})` : ''}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
         {excelLoading ? (
           <div className="text-center py-8 text-gray-500">Loading session data...</div>
         ) : !excelSession ? (
