@@ -435,7 +435,7 @@ const OperationsOverviewDashboard = () => {
       setAuthError('');
       await withRetry(async () => {
         const { data, error } = await supabase?.rpc('admin_delete_employee', {
-          employee_id: employeeId
+          employee_id_in: employeeId
         });
         if (error) throw error;
       }, 'Deleting employee');
@@ -725,9 +725,15 @@ const OperationsOverviewDashboard = () => {
               disabled={loading}
             >
               <option value="">All Employees</option>
-              {employees?.filter(emp => emp.role === 'employee').map(emp => (
-                <option key={emp.id} value={emp.id}>{emp.full_name}</option>
-              ))}
+              {employees
+                ?.filter(emp => emp.role === 'employee')
+                ?.filter(emp => {
+                  const name = emp.full_name?.toLowerCase() || '';
+                  return !name.includes('admin') && !name.includes('manager');
+                })
+                .map(emp => (
+                  <option key={emp.id} value={emp.id}>{emp.full_name}</option>
+                ))}
             </select>
             <div className="flex flex-col justify-end">
               <Button
@@ -1563,6 +1569,7 @@ const OperationsOverviewDashboard = () => {
       </div>
       {/* Main Content */}
       <main className="container mx-auto px-6 py-8">
+        {renderTimesheetsSection()}
         {renderInventorySection()}
         {renderEmployeeSection()}
         {renderSettingsSection()}
