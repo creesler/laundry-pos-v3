@@ -450,10 +450,12 @@ const EmployeePOSTerminal = () => {
           const inv = inventoryByProduct[key];
           return inv ? {
             ...inv,
+            id: prod.id, // Always use the unique id from Supabase
             name: prod.name,
             price: prod.price,
             qty: prod.qty
           } : {
+            id: prod.id, // Use the unique id even for new items
             name: prod.name,
             price: prod.price,
             qty: prod.qty,
@@ -1194,7 +1196,6 @@ const EmployeePOSTerminal = () => {
   // Save all data to database and fetch updated information
   const handleSave = async () => {
     console.log('Save Progress button pressed - handleSave called');
-    // Check for internet connection
     if (!navigator.onLine) {
       alert('No internet detected. Saving to localDB for now. Try saving later when you have wifi connection.');
       // Add note to session if possible
@@ -1405,96 +1406,95 @@ const EmployeePOSTerminal = () => {
         console.log('Saved session with notes and totals/cash to localDB:', sessionToSave);
       }
       // --- Save session to Supabase ---
-      console.log('Session save check:', { currentSession, selectedEmployee });
-      if (currentSession && selectedEmployee) {
-        const sessionPayload = {
-          ...currentSession,
-          employee_id: selectedEmployee,
-          cash_started: cashData.started,
-          cash_added: cashData.added,
-          cash_total: cashData.total,
-          inventory_total: totals.inventorySalesTotal,
-          wash_dry_total: totals.washDrySubtotal,
-          grand_total: totals.grandTotal,
-          notes,
-          updated_at: new Date().toISOString(),
-        };
+      let sessionId = currentSession?.id;
+      let sessionPayload = {
+        ...currentSession,
+        employee_id: selectedEmployee,
+        cash_started: cashData.started,
+        cash_added: cashData.added,
+        cash_total: cashData.total,
+        inventory_total: totals.inventorySalesTotal,
+        wash_dry_total: totals.washDrySubtotal,
+        grand_total: totals.grandTotal,
+        notes,
+        updated_at: new Date().toISOString(),
+      };
+      let retry = false;
+      let retryCount = 0;
+      do {
+        retry = false;
         console.log('--- Attempting to save session to Supabase ---');
-        console.log('Cash fields:', {
-          cash_started: cashData.started,
-          cash_added: cashData.added,
-          cash_total: cashData.total,
-        });
-        console.log('Session payload:', sessionPayload);
-        console.log('--- [AWAIT] About to upsert session to Supabase ---');
         const { error: sessionError } = await supabase
-              .from('pos_sessions')
+          .from('pos_sessions')
           .upsert([sessionPayload], { onConflict: 'id' });
-        console.log('--- [AWAIT] Finished upsert session to Supabase ---');
-        if (sessionError) {
+        if (sessionError && sessionError.code === '409' && retryCount < 2) {
+          // 409 conflict: generate new session ID and retry
+          const newSessionId = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() :
+            'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+              const r = Math.random() * 16 | 0, v = c === 'x' ? r : (r & 0x3 | 0x8);
+              return v.toString(16);
+            });
+          sessionId = newSessionId;
+          sessionPayload = { ...sessionPayload, id: newSessionId };
+          setCurrentSession(cs => ({ ...cs, id: newSessionId }));
+          retry = true;
+          retryCount++;
+          console.warn('409 Conflict: Duplicate session. Retrying with new session ID:', newSessionId);
+        } else if (sessionError) {
           console.error('Error saving session to Supabase:', sessionError);
           alert('❌ Failed to save session. Inventory and tickets not saved.');
           setLoading(false);
           return;
         }
-        // --- Confirm session exists in database ---
-        const { data: sessionRows, error: selectSessionError } = await supabase
-          .from('pos_sessions')
-          .select('id')
-          .eq('id', currentSession.id);
-        console.log('Session select result:', { sessionRows, selectSessionError });
-        if (selectSessionError || !sessionRows || sessionRows.length === 0) {
-          console.error('Session row not found in database after upsert:', selectSessionError);
-          alert('❌ Session row not found in database. Please check your internet connection and retry.');
-          setLoading(false);
-          return;
-        }
-        // --- Save inventory items ---
-        const todayISOString = new Date().toISOString();
-        const inventoryPayload = inventoryItems.map(item => ({
-          pos_session_id: currentSession?.id,
-          item_name: item.name,
-          quantity: item.qty || 1,
-          price: Number(item.price || 0),
-          start_count: Number(item.start || 0),
-          add_count: Number(item.add || 0),
-          sold_count: Number(item.sold || 0),
-          left_count: Number(item.left || 0),
-          total_amount: Number(item.total || 0),
-          created_at: todayISOString,
-          updated_at: todayISOString
-        }));
-        console.log('Preparing to upload inventory for session:', currentSession?.id);
-        console.table(inventoryPayload);
-        const insertInventoryResponse = await supabase.from('pos_inventory_items').insert(inventoryPayload);
-        console.log('Supabase inventory insert response:', insertInventoryResponse);
-        if (insertInventoryResponse.error) {
-          console.error('Error uploading inventory to Supabase:', insertInventoryResponse.error);
-          alert('❌ Failed to save inventory.');
-          setLoading(false);
-          return;
-        }
-        // --- Save tickets ---
-        const ticketPayload = tickets.map(ticket => ({
-          pos_session_id: currentSession?.id,
-          ticket_number: ticket.ticketNumber,
-          wash_amount: ticket.wash || 0,
-          dry_amount: ticket.dry || 0,
-          total_amount: ticket.total || 0,
-          created_at: todayISOString,
-          updated_at: todayISOString
-        }));
-        console.log('Ticket payload to save:', ticketPayload);
-        const insertTicketResponse = await supabase.from('pos_wash_dry_tickets').insert(ticketPayload);
-        console.log('Supabase ticket insert response:', insertTicketResponse);
-        if (insertTicketResponse.error) {
-          console.error('Error uploading tickets to Supabase:', insertTicketResponse.error);
-          alert('❌ Failed to save tickets.');
-          setLoading(false);
-          return;
-        }
-        alert('✅ All data saved to Supabase successfully!');
+      } while (retry && retryCount < 2);
+      // --- Confirm session exists in database ---
+      const { data: sessionRows, error: selectSessionError } = await supabase
+        .from('pos_sessions')
+        .select('id')
+        .eq('id', sessionId);
+      if (selectSessionError || !sessionRows || sessionRows.length === 0) {
+        alert('❌ Session row not found in database. Please check your internet connection and retry.');
+        setLoading(false);
+        return;
       }
+      // --- Save inventory items ---
+      const todayISOString = new Date().toISOString();
+      const inventoryPayload = inventoryItems.map(item => ({
+        pos_session_id: sessionId,
+        item_name: item.name,
+        quantity: item.qty || 1,
+        price: Number(item.price || 0),
+        start_count: Number(item.start || 0),
+        add_count: Number(item.add || 0),
+        sold_count: Number(item.sold || 0),
+        left_count: Number(item.left || 0),
+        total_amount: Number(item.total || 0),
+        created_at: todayISOString,
+        updated_at: todayISOString
+      }));
+      const insertInventoryResponse = await supabase.from('pos_inventory_items').insert(inventoryPayload);
+      if (insertInventoryResponse.error) {
+        alert('❌ Failed to save inventory.');
+        setLoading(false);
+        return;
+      }
+      // --- Save tickets ---
+      const ticketPayload = tickets.map(ticket => ({
+        pos_session_id: sessionId,
+        ticket_number: ticket.ticketNumber,
+        wash_amount: ticket.wash || 0,
+        dry_amount: ticket.dry || 0,
+        total_amount: ticket.total || 0,
+        created_at: todayISOString,
+        updated_at: todayISOString
+      }));
+      const insertTicketResponse = await supabase.from('pos_wash_dry_tickets').insert(ticketPayload);
+      if (insertTicketResponse.error) {
+        alert('❌ Failed to save tickets.');
+        setLoading(false);
+        return;
+      }
+      alert('✅ All data saved to Supabase successfully!');
       // --- Timesheet sync logic ---
       if (timesheetService.syncTimesheets) {
         const syncResults = await timesheetService.syncTimesheets();
