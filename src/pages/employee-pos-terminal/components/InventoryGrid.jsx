@@ -56,9 +56,6 @@ const InventoryGrid = ({ items = [], onFieldClick, activeInput, getDisplayValue 
             <tr key={item?.id || item?.name} className="border-b border-slate-100 hover:bg-slate-50/50 transition-colors">
               <td className="py-4 px-4">
                 <div className="flex items-center space-x-3">
-                  <div className="w-10 h-10 bg-gradient-to-br from-blue-100 to-blue-200 rounded-lg flex items-center justify-center">
-                    <Icon name="ShoppingBag" size={16} className="text-blue-600" />
-                  </div>
                   <div>
                     <div className="font-medium text-slate-800">{item?.name || 'Unnamed Item'}</div>
                     {item?.dbId && <div className="text-xs text-slate-500">ID: {item.dbId}</div>}
