@@ -58,7 +58,6 @@ const InventoryGrid = ({ items = [], onFieldClick, activeInput, getDisplayValue 
                 <div className="flex items-center space-x-3">
                   <div>
                     <div className="font-medium text-slate-800">{item?.name || 'Unnamed Item'}</div>
-                    {item?.dbId && <div className="text-xs text-slate-500">ID: {item.dbId}</div>}
                   </div>
                 </div>
               </td>
