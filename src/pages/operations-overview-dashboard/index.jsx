@@ -1450,27 +1450,34 @@ const OperationsOverviewDashboard = () => {
                   </tbody>
                 </table>
               </div>
-              <div className="flex-1">
-                <table className="border border-gray-300 mt-2 min-w-[320px]">
-                  <thead>
-                    <tr className="bg-gray-100">
-                      <th className="border px-2 py-1">Ticket #</th>
-                      <th className="border px-2 py-1">$Wash</th>
-                      <th className="border px-2 py-1">$Dry</th>
-                      <th className="border px-2 py-1">$Total</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {(excelSession.pos_wash_dry_tickets || []).map(ticket => (
-                      <tr key={ticket.id}>
-                        <td className="border px-2 py-1">{ticket.ticket_number}</td>
-                        <td className="border px-2 py-1">{ticket.wash_amount ? Number(ticket.wash_amount).toFixed(2) : ''}</td>
-                        <td className="border px-2 py-1">{ticket.dry_amount ? Number(ticket.dry_amount).toFixed(2) : ''}</td>
-                        <td className="border px-2 py-1">{ticket.total_amount ? Number(ticket.total_amount).toFixed(2) : ''}</td>
+              <div className="flex-1 flex gap-8">
+                <div className="flex-1">
+                  <table className="border border-gray-300 mt-2 min-w-[320px]">
+                    <thead>
+                      <tr className="bg-gray-100">
+                        <th className="border px-2 py-1">Ticket #</th>
+                        <th className="border px-2 py-1">$Wash</th>
+                        <th className="border px-2 py-1">$Dry</th>
+                        <th className="border px-2 py-1">$Total</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {(excelSession.pos_wash_dry_tickets || []).map(ticket => (
+                        <tr key={ticket.id}>
+                          <td className="border px-2 py-1">{ticket.ticket_number}</td>
+                          <td className="border px-2 py-1">{ticket.wash_amount ? Number(ticket.wash_amount).toFixed(2) : ''}</td>
+                          <td className="border px-2 py-1">{ticket.dry_amount ? Number(ticket.dry_amount).toFixed(2) : ''}</td>
+                          <td className="border px-2 py-1">{ticket.total_amount ? Number(ticket.total_amount).toFixed(2) : ''}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                {/* Session Notes Box */}
+                <div className="w-80 min-w-[220px] bg-yellow-50 border border-yellow-200 rounded-lg p-4 h-fit self-start">
+                  <div className="font-semibold mb-1 text-yellow-900">Session Notes:</div>
+                  <div className="whitespace-pre-line text-yellow-800">{excelSession?.notes?.trim() ? excelSession.notes : 'No notes for this session.'}</div>
+                </div>
               </div>
             </div>
             <div className="mt-6 font-bold text-right text-lg">GRAND TOTAL: ${excelSession.grand_total ? Number(excelSession.grand_total).toFixed(2) : ''}</div>
