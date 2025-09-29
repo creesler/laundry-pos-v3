@@ -42,17 +42,34 @@ const OperationsOverviewDashboard = () => {
     employeeName: ''
   });
 
-  // Sales data
+  // Sales data (now by date)
   const salesData = [
-    { time: '9:00', sales: 450, orders: 12 },
-    { time: '10:00', sales: 680, orders: 18 },
-    { time: '11:00', sales: 820, orders: 22 },
-    { time: '12:00', sales: 950, orders: 25 },
-    { time: '13:00', sales: 1120, orders: 28 },
-    { time: '14:00', sales: 890, orders: 24 },
-    { time: '15:00', sales: 750, orders: 20 },
-    { time: '16:00', sales: 650, orders: 17 }
+    { date: '2025-09-25', sales: 1200, orders: 30 },
+    { date: '2025-09-26', sales: 1450, orders: 34 },
+    { date: '2025-09-27', sales: 1600, orders: 38 },
+    { date: '2025-09-28', sales: 1847, orders: 42 },
+    { date: '2025-09-29', sales: 2100, orders: 48 },
   ];
+
+  // Custom filter state for sales graph
+  const [selectedDay, setSelectedDay] = useState('');
+  const [selectedMonth, setSelectedMonth] = useState('');
+  const [selectedYear, setSelectedYear] = useState('');
+
+  // Generate unique years, months, days from salesData
+  const years = Array.from(new Set(salesData.map(d => d.date.split('-')[0])));
+  const months = Array.from(new Set(salesData.map(d => d.date.split('-')[1])));
+  const days = Array.from(new Set(salesData.map(d => d.date.split('-')[2])));
+
+  // Filtered sales data
+  const filteredSalesData = salesData.filter(d => {
+    const [year, month, day] = d.date.split('-');
+    return (
+      (!selectedYear || year === selectedYear) &&
+      (!selectedMonth || month === selectedMonth) &&
+      (!selectedDay || day === selectedDay)
+    );
+  });
 
   // Navigation sections - add timesheet section
   const navSections = [
@@ -639,29 +656,52 @@ const OperationsOverviewDashboard = () => {
           <h2 className="text-2xl font-bold text-gray-800">Sales Overview</h2>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-          <div className="bg-gradient-to-r from-blue-500 to-blue-600 rounded-lg p-6 text-white">
-            <h3 className="text-lg font-semibold mb-2">Today's Revenue</h3>
-            <p className="text-3xl font-bold">$2,847.50</p>
-            <p className="text-blue-200 mt-2">+12.5% from yesterday</p>
-          </div>
-          <div className="bg-gradient-to-r from-green-500 to-green-600 rounded-lg p-6 text-white">
-            <h3 className="text-lg font-semibold mb-2">Total Orders</h3>
-            <p className="text-3xl font-bold">158</p>
-            <p className="text-green-200 mt-2">+8 from yesterday</p>
-          </div>
-          <div className="bg-gradient-to-r from-purple-500 to-purple-600 rounded-lg p-6 text-white">
-            <h3 className="text-lg font-semibold mb-2">Average Order</h3>
-            <p className="text-3xl font-bold">$18.02</p>
-            <p className="text-purple-200 mt-2">+2.3% from yesterday</p>
-          </div>
+        {/* Custom Date Filter */}
+        <div className="mb-6 flex flex-wrap gap-4 items-center">
+          <label className="font-semibold text-gray-700">Filter by:</label>
+          <select
+            className="border border-gray-300 rounded px-3 py-2 text-sm"
+            value={selectedYear}
+            onChange={e => setSelectedYear(e.target.value)}
+          >
+            <option value="">Year</option>
+            {years.map(y => (
+              <option key={y} value={y}>{y}</option>
+            ))}
+          </select>
+          <select
+            className="border border-gray-300 rounded px-3 py-2 text-sm"
+            value={selectedMonth}
+            onChange={e => setSelectedMonth(e.target.value)}
+          >
+            <option value="">Month</option>
+            {months.map(m => (
+              <option key={m} value={m}>{m}</option>
+            ))}
+          </select>
+          <select
+            className="border border-gray-300 rounded px-3 py-2 text-sm"
+            value={selectedDay}
+            onChange={e => setSelectedDay(e.target.value)}
+          >
+            <option value="">Day</option>
+            {days.map(d => (
+              <option key={d} value={d}>{d}</option>
+            ))}
+          </select>
+          <button
+            className="ml-2 px-3 py-2 rounded bg-gray-100 text-gray-700 text-sm border border-gray-300 hover:bg-gray-200"
+            onClick={() => { setSelectedDay(''); setSelectedMonth(''); setSelectedYear(''); }}
+          >
+            Clear
+          </button>
         </div>
 
         <div className="h-80 w-full">
           <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={salesData}>
+            <LineChart data={filteredSalesData}>
               <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="time" />
+              <XAxis dataKey="date" />
               <YAxis />
               <Tooltip />
               <Line type="monotone" dataKey="sales" stroke="#2563eb" strokeWidth={3} />
@@ -1293,8 +1333,44 @@ const OperationsOverviewDashboard = () => {
 
   // Excel-style session view component
   const renderExcelSessionView = () => {
+    // Helper to increment/decrement date
+    const changeExcelDate = (days) => {
+      const current = new Date(excelDate);
+      current.setDate(current.getDate() + days);
+      setExcelDate(current.toISOString().split('T')[0]);
+    };
     return (
       <div className="mb-10 bg-white rounded-2xl shadow-xl p-8 print:p-2 border border-gray-200">
+        {/* Date Picker for Daily Sheet Preview with left/right buttons */}
+        <div className="mb-6 flex items-center justify-between space-x-4">
+          <div className="flex items-center space-x-2">
+            <label htmlFor="excel-date-picker" className="font-semibold text-gray-700 mr-2">Select Date:</label>
+            <input
+              id="excel-date-picker"
+              type="date"
+              className="border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              value={excelDate}
+              onChange={e => setExcelDate(e.target.value)}
+              max={new Date().toISOString().split('T')[0]}
+            />
+            <button
+              className="ml-2 px-2 py-1 rounded bg-gray-100 text-gray-700 border border-gray-300 hover:bg-gray-200"
+              onClick={() => changeExcelDate(-1)}
+              aria-label="Previous Day"
+              type="button"
+            >
+              &#8592;
+            </button>
+            <button
+              className="ml-1 px-2 py-1 rounded bg-gray-100 text-gray-700 border border-gray-300 hover:bg-gray-200"
+              onClick={() => changeExcelDate(1)}
+              aria-label="Next Day"
+              type="button"
+            >
+              &#8594;
+            </button>
+          </div>
+        </div>
         {/* Modern Section Header */}
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center space-x-4">
@@ -1571,29 +1647,7 @@ const OperationsOverviewDashboard = () => {
           <h1 className="text-3xl font-bold text-gray-900">Operations Overview</h1>
           <p className="text-gray-600 mt-2">Monitor your business performance and key metrics</p>
         </div>
-        
-        {/* Enhanced connection status indicator */}
-        <div className="flex items-center space-x-4">
-          <div className="flex items-center space-x-2">
-            <div className={`h-3 w-3 rounded-full ${
-              sessionError || !autoSaveStatus?.enabled 
-                ? 'bg-red-500' :'bg-green-500'
-            }`}></div>
-            <span className="text-sm text-gray-600">
-              {sessionError || !autoSaveStatus?.enabled ? 'Connection Issue' : 'Connected'}
-            </span>
-          </div>
-          
-          <select 
-            className="bg-white border border-gray-300 rounded-lg px-3 py-2 text-sm"
-            value={selectedTimeFrame}
-            onChange={(e) => setSelectedTimeFrame(e?.target?.value)}
-          >
-            <option value="today">Today</option>
-            <option value="week">This Week</option>
-            <option value="month">This Month</option>
-          </select>
-        </div>
+        {/* Removed connection status and timeframe dropdown */}
       </div>
       {/* Main Content */}
       <main className="container mx-auto px-6 py-8">
