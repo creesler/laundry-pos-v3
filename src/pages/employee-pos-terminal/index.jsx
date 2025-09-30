@@ -1690,6 +1690,24 @@ const EmployeePOSTerminal = () => {
     }
   }, []);
 
+  // Helper to get last ticket number from Supabase and store in localStorage
+  const updateLastTicketNumberFromSupabase = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('pos_wash_dry_tickets')
+        .select('ticket_number')
+        .order('ticket_number', { ascending: false })
+        .limit(1)
+        .single();
+      const lastTicketNumber = data?.ticket_number ? parseInt(data.ticket_number, 10) : 0;
+      localStorage.setItem('last_ticket_number', lastTicketNumber);
+      return lastTicketNumber;
+    } catch (e) {
+      console.error('Failed to fetch last ticket number from Supabase:', e);
+      return parseInt(localStorage.getItem('last_ticket_number') || '0', 10);
+    }
+  };
+
   if (loading && !currentSession) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 flex items-center justify-center">
