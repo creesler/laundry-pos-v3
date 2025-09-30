@@ -1535,17 +1535,17 @@ const EmployeePOSTerminal = () => {
 
   // Save data to local storage only
   const saveToLocal = async (sessionData) => {
-    const localSave = {
-      employee: selectedEmployee,
-      date: new Date().toISOString(),
-      data: sessionData,
-      timestamp: new Date().getTime()
-    };
-    
+      const localSave = {
+        employee: selectedEmployee,
+        date: new Date().toISOString(),
+        data: sessionData,
+        timestamp: new Date().getTime()
+      };
+      
     // Save to localStorage as a backup
-    const localSaves = JSON.parse(localStorage.getItem('pos_offline_saves') || '[]');
-    localSaves.push(localSave);
-    localStorage.setItem('pos_offline_saves', JSON.stringify(localSaves));
+      const localSaves = JSON.parse(localStorage.getItem('pos_offline_saves') || '[]');
+      localSaves.push(localSave);
+      localStorage.setItem('pos_offline_saves', JSON.stringify(localSaves));
     
     return localSave;
   };
