@@ -1423,59 +1423,41 @@ const EmployeePOSTerminal = () => {
         notes,
         updated_at: new Date().toISOString(),
       };
-      // Defensive: always ensure unique session ID before insert
+      // Get today's date in YYYY-MM-DD format
+      const todayDate = new Date().toISOString().split('T')[0];
+      // Check for existing session for this employee and date
       const { data: existingSession } = await supabase
         .from('pos_sessions')
         .select('id')
-        .eq('id', sessionPayload.id)
+        .eq('employee_id', selectedEmployee)
+        .eq('session_date', todayDate)
         .single();
       if (existingSession) {
-        // Generate a new UUID
-        const newSessionId = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() :
-          'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
-            const r = Math.random() * 16 | 0, v = c === 'x' ? r : (r & 0x3 | 0x8);
-            return v.toString(16);
-          });
-        sessionPayload.id = newSessionId;
-        setCurrentSession(cs => ({ ...cs, id: newSessionId }));
-      }
-      let retry = false;
-      let retryCount = 0;
-      do {
-        retry = false;
-        console.log('--- Attempting to save session to Supabase ---');
+        // Use the existing session ID for all related data
+        sessionPayload.id = existingSession.id;
+        setCurrentSession(cs => ({ ...cs, id: existingSession.id }));
+        // Update the session row
         const { error: sessionError } = await supabase
-              .from('pos_sessions')
-          .insert([sessionPayload]);
-        if (sessionError && sessionError.code === '409' && retryCount < 2) {
-          // 409 conflict: generate new session ID and retry
-          const newSessionId = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() :
-            'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
-              const r = Math.random() * 16 | 0, v = c === 'x' ? r : (r & 0x3 | 0x8);
-              return v.toString(16);
-            });
-          sessionId = newSessionId;
-          sessionPayload = { ...sessionPayload, id: newSessionId };
-          setCurrentSession(cs => ({ ...cs, id: newSessionId }));
-          retry = true;
-          retryCount++;
-          console.warn('409 Conflict: Duplicate session. Retrying with new session ID:', newSessionId);
-        } else if (sessionError) {
-          console.error('Error saving session to Supabase:', sessionError);
-          alert('❌ Failed to save session. Inventory and tickets not saved.');
+          .from('pos_sessions')
+          .update(sessionPayload)
+          .eq('id', existingSession.id);
+        if (sessionError) {
+          console.error('Error updating session to Supabase:', sessionError);
+          alert('❌ Failed to update session.');
           setLoading(false);
           return;
         }
-      } while (retry && retryCount < 2);
-      // --- Confirm session exists in database ---
-      const { data: sessionRows, error: selectSessionError } = await supabase
-        .from('pos_sessions')
-        .select('id')
-        .eq('id', sessionId);
-      if (selectSessionError || !sessionRows || sessionRows.length === 0) {
-        alert('❌ Session row not found in database. Please check your internet connection and retry.');
-        setLoading(false);
-        return;
+      } else {
+        // Insert new session as before
+        const { error: sessionError } = await supabase
+          .from('pos_sessions')
+          .insert([sessionPayload]);
+        if (sessionError) {
+          console.error('Error inserting session to Supabase:', sessionError);
+          alert('❌ Failed to insert session.');
+          setLoading(false);
+          return;
+        }
       }
       // --- Save inventory items ---
       const todayISOString = new Date().toISOString();
