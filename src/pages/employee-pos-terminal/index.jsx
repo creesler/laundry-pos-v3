@@ -1430,7 +1430,7 @@ const EmployeePOSTerminal = () => {
         console.log('--- Attempting to save session to Supabase ---');
         const { error: sessionError } = await supabase
               .from('pos_sessions')
-          .upsert([sessionPayload], { onConflict: 'id' });
+          .insert([sessionPayload]);
         if (sessionError && sessionError.code === '409' && retryCount < 2) {
           // 409 conflict: generate new session ID and retry
           const newSessionId = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() :
