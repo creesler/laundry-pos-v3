@@ -14,11 +14,17 @@ const EmployeeSelect = ({ employees, selectedEmployeeId, onChange }) => {
       }}
     >
       <option value="" disabled>Select employee</option>
-      {employees.map(emp => (
-        <option key={emp.id} value={emp.id}>
-          {emp.full_name || emp.name || emp.email}
-        </option>
-      ))}
+      {employees
+        .filter(emp => emp.role === 'employee')
+        .filter(emp => {
+          const name = (emp.full_name || emp.name || emp.email || '').toLowerCase();
+          return !name.includes('admin') && !name.includes('manager');
+        })
+        .map(emp => (
+          <option key={emp.id} value={emp.id}>
+            {emp.full_name || emp.name || emp.email}
+          </option>
+        ))}
     </select>
   );
 };
