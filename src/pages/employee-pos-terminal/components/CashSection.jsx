@@ -50,6 +50,19 @@ const CashSection = ({ cashData, onFieldClick, activeInput, getDisplayValue }) =
         </div>
 
         <div className="space-y-2">
+          <label className="text-sm font-medium text-slate-700">Coins Used</label>
+          <button
+            onClick={() => handleFieldClick('coinsUsed')}
+            className={`w-full h-12 rounded-lg border-2 transition-all font-semibold text-lg ${
+              isFieldActive('coinsUsed') 
+                ? 'border-blue-500 bg-blue-50 text-blue-700 shadow-md' :'border-slate-200 bg-white hover:border-slate-300 text-slate-600'
+            }`}
+          >
+            ${getDisplayValue('cash', null, 'coinsUsed', cashData?.coinsUsed)}
+          </button>
+        </div>
+
+        <div className="space-y-2">
           <label className="text-sm font-medium text-slate-700">Total Cash</label>
           <div className="flex items-center space-x-2">
             <div className="flex-1 h-12 rounded-lg bg-orange-50 border border-orange-200 flex items-center justify-center font-bold text-lg text-orange-700">

@@ -199,6 +199,7 @@ const EmployeePOSTerminal = () => {
   const [cashData, setCashData] = useState({
     started: 0,
     added: 0,
+    coinsUsed: 0, // new field
     total: 0
   });
 
@@ -784,9 +785,9 @@ const EmployeePOSTerminal = () => {
   useEffect(() => {
     setCashData(prev => ({
       ...prev,
-      total: (prev?.started || 0) + (prev?.added || 0)
+      total: (prev?.started || 0) + (prev?.added || 0) - (prev?.coinsUsed || 0)
     }));
-  }, [cashData?.started, cashData?.added]);
+  }, [cashData?.started, cashData?.added, cashData?.coinsUsed]);
 
   // FIXED: Simple field click handler without auto-fill
   const handleFieldClick = (fieldInfo) => {
@@ -1208,6 +1209,7 @@ const EmployeePOSTerminal = () => {
           grand_total: totals.grandTotal,
           cash_started: cashData.started,
           cash_added: cashData.added,
+          coins_used: cashData.coinsUsed,
           cash_total: cashData.total
         };
         console.log('Saving session to localDB (offline):', sessionToSave);
@@ -1399,6 +1401,7 @@ const EmployeePOSTerminal = () => {
           grand_total: totals.grandTotal,
           cash_started: cashData.started,
           cash_added: cashData.added,
+          coins_used: cashData.coinsUsed,
           cash_total: cashData.total
         };
         console.log('Saving session to localDB:', sessionToSave);
@@ -1412,6 +1415,7 @@ const EmployeePOSTerminal = () => {
         employee_id: selectedEmployee,
         cash_started: cashData.started,
         cash_added: cashData.added,
+        coins_used: cashData.coinsUsed,
         cash_total: cashData.total,
         inventory_total: totals.inventorySalesTotal,
         wash_dry_total: totals.washDrySubtotal,
@@ -1521,6 +1525,7 @@ const EmployeePOSTerminal = () => {
             status: currentSession.status,
             cash_started: cashData.started,
             cash_added: cashData.added,
+            coins_used: cashData.coinsUsed,
             cash_total: cashData.total,
           };
           localDB.storeSession(updatedSession).catch(e => console.error('Failed to save cashData to localDB:', e));
@@ -1680,7 +1685,8 @@ const EmployeePOSTerminal = () => {
           setCashData({
             started: localSession.cash_started || 0,
             added: localSession.cash_added || 0,
-            total: localSession.cash_total || 0,
+            coinsUsed: localSession.coins_used || 0,
+            total: (localSession.cash_started || 0) + (localSession.cash_added || 0) - (localSession.coins_used || 0)
           });
         }
       });
