@@ -1295,7 +1295,7 @@ const EmployeePOSTerminal = () => {
             }
           }
           const mostRecentForDisplay = Object.values(latestByItem);
-          setInventoryItems(mostRecentForDisplay);
+          await mergeMasterWithLocalInventory();
           console.log('For display, using most recent inventory per item:', mostRecentForDisplay);
           alert('✅ Inventory loaded from Supabase and saved locally.');
         } else {
@@ -1322,7 +1322,7 @@ const EmployeePOSTerminal = () => {
           }
         }
         const mostRecentForDisplay = Object.values(latestByItem);
-        setInventoryItems(mostRecentForDisplay);
+        await mergeMasterWithLocalInventory();
         console.log('For display, using most recent inventory per item:', mostRecentForDisplay);
         // If offline, skip Supabase sync and show local save message
         if (!navigator.onLine) {
@@ -1425,7 +1425,7 @@ const EmployeePOSTerminal = () => {
         retry = false;
         console.log('--- Attempting to save session to Supabase ---');
         const { error: sessionError } = await supabase
-          .from('pos_sessions')
+              .from('pos_sessions')
           .upsert([sessionPayload], { onConflict: 'id' });
         if (sessionError && sessionError.code === '409' && retryCount < 2) {
           // 409 conflict: generate new session ID and retry
