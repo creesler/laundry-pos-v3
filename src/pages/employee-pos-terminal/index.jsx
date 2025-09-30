@@ -1504,6 +1504,28 @@ const EmployeePOSTerminal = () => {
           alert(`Timesheet sync complete: ${successCount} succeeded, ${failureCount} failed.`);
         }
       }
+      // Persist tickets to localDB after every change
+      if (localDB.storeTickets) {
+        localDB.storeTickets(tickets)
+          .then(() => console.log('✅ Tickets saved to localDB:', tickets))
+          .catch(e => console.error('Failed to save tickets to localDB:', e));
+      }
+      // Persist cashData to localDB (as part of session) after every change
+      if (localDB.getSession && localDB.storeSession && currentSession) {
+        localDB.getSession().then(session => {
+          const updatedSession = {
+            ...(session || {}),
+            id: currentSession.id,
+            created_at: currentSession.created_at,
+            employee_id: currentSession.employee_id,
+            status: currentSession.status,
+            cash_started: cashData.started,
+            cash_added: cashData.added,
+            cash_total: cashData.total,
+          };
+          localDB.storeSession(updatedSession).catch(e => console.error('Failed to save cashData to localDB:', e));
+        });
+      }
     } catch (err) {
       console.error('❌ Error in handleSave:', err);
     } finally {
@@ -1552,6 +1574,7 @@ const EmployeePOSTerminal = () => {
         console.log('Loaded tickets from localDB:', localTickets);
         if (localTickets && localTickets.length > 0) {
           setTickets(localTickets);
+          console.log('✅ Tickets restored from localDB on mount:', localTickets);
         } else {
           setTickets([
             { id: 1, ticketNumber: '001', wash: 0, dry: 0, total: 0 },
@@ -1648,32 +1671,6 @@ const EmployeePOSTerminal = () => {
     setInventoryItems(displayInventory);
     console.log('Display inventory (master + latest local):', displayInventory);
   };
-
-  // Persist tickets to localDB after every change
-  useEffect(() => {
-    if (localDB.storeTickets) {
-      localDB.storeTickets(tickets).catch(e => console.error('Failed to save tickets to localDB:', e));
-    }
-  }, [tickets]);
-
-  // Persist cashData to localDB (as part of session) after every change
-  useEffect(() => {
-    if (localDB.getSession && localDB.storeSession && currentSession) {
-      localDB.getSession().then(session => {
-        const updatedSession = {
-          ...(session || {}),
-          id: currentSession.id,
-          created_at: currentSession.created_at,
-          employee_id: currentSession.employee_id,
-          status: currentSession.status,
-          cash_started: cashData.started,
-          cash_added: cashData.added,
-          cash_total: cashData.total,
-        };
-        localDB.storeSession(updatedSession).catch(e => console.error('Failed to save cashData to localDB:', e));
-      });
-    }
-  }, [cashData, currentSession]);
 
   // On mount, restore cashData from localDB session if available
   useEffect(() => {
