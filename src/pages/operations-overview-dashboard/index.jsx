@@ -1537,7 +1537,7 @@ const OperationsOverviewDashboard = () => {
                     <tr><td className="py-1 font-semibold text-gray-700">Cash Started</td><td className="py-1 text-right">{excelSession.cash_started ? Number(excelSession.cash_started).toFixed(2) : ''}</td></tr>
                     <tr><td className="py-1 font-semibold text-gray-700">Cash Added</td><td className="py-1 text-right">{excelSession.cash_added ? Number(excelSession.cash_added).toFixed(2) : ''}</td></tr>
                     <tr><td className="py-1 font-semibold text-gray-700">Total Cash</td><td className="py-1 text-right">{excelSession.cash_total ? Number(excelSession.cash_total).toFixed(2) : ''}</td></tr>
-                    <tr><td className="py-1 font-semibold text-gray-700">Inventory Total</td><td className="py-1 text-right">{displayRows.reduce((sum, item) => sum + (item.total_amount || 0), 0)}</td></tr>
+                    <tr><td className="py-1 font-semibold text-gray-700">Inventory Total</td><td className="py-1 text-right">{excelSession.inventory_total ? Number(excelSession.inventory_total).toFixed(2) : ''}</td></tr>
                     <tr><td className="py-1 font-semibold text-gray-700">Wash &amp; Dry Total</td><td className="py-1 text-right">{excelSession.wash_dry_total ? Number(excelSession.wash_dry_total).toFixed(2) : ''}</td></tr>
                     <tr><td className="py-1 font-bold text-blue-800">Grand Total</td><td className="py-1 text-right font-bold text-blue-800">{excelSession.grand_total ? Number(excelSession.grand_total).toFixed(2) : ''}</td></tr>
                   </tbody>
