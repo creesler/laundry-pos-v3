@@ -1423,6 +1423,22 @@ const EmployeePOSTerminal = () => {
         notes,
         updated_at: new Date().toISOString(),
       };
+      // Defensive: always ensure unique session ID before insert
+      const { data: existingSession } = await supabase
+        .from('pos_sessions')
+        .select('id')
+        .eq('id', sessionPayload.id)
+        .single();
+      if (existingSession) {
+        // Generate a new UUID
+        const newSessionId = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() :
+          'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+            const r = Math.random() * 16 | 0, v = c === 'x' ? r : (r & 0x3 | 0x8);
+            return v.toString(16);
+          });
+        sessionPayload.id = newSessionId;
+        setCurrentSession(cs => ({ ...cs, id: newSessionId }));
+      }
       let retry = false;
       let retryCount = 0;
       do {
