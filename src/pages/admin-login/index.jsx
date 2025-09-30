@@ -29,7 +29,7 @@ const AdminLogin = () => {
           console.log('Demo mode: Using session storage for admin authentication');
         }
         
-        // Store admin authentication flag
+        // Store admin authentication flag and everything
         sessionStorage.setItem('adminAuthenticated', 'true');
         sessionStorage.setItem('adminEmail', email);
         navigate('/operations-overview-dashboard');
