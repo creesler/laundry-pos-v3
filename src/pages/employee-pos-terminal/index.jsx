@@ -1590,6 +1590,65 @@ const EmployeePOSTerminal = () => {
     }
   }, [selectedEmployee, currentSession]);
 
+  // Helper: Merge master inventory with local/latest inventory
+  const mergeMasterWithLocalInventory = async () => {
+    // 1. Fetch master inventory items from Supabase
+    let masterProducts = [];
+    try {
+      const { data: masterData, error: masterError } = await supabase
+        .from('master_inventory_items')
+        .select('*')
+        .order('item_name');
+      if (masterError) throw masterError;
+      masterProducts = (masterData || []).map(item => ({
+        id: item.id,
+        name: item.item_name,
+        price: Number(item.price || 0),
+        qty: item.quantity || 1
+      }));
+    } catch (e) {
+      console.error('Error fetching master product list:', e);
+      return; // Don't update inventory if master fetch fails
+    }
+    // 2. Fetch latest local inventory records
+    let localInventory = [];
+    if (localDB.getAllInventoryItems) {
+      localInventory = await localDB.getAllInventoryItems();
+    }
+    const inventoryByProduct = {};
+    for (const item of localInventory) {
+      const key = (item.name || item.item_name || '').toLowerCase();
+      if (!inventoryByProduct[key] ||
+          new Date(item.updated_at || item.created_at || 0) > new Date(inventoryByProduct[key].updated_at || inventoryByProduct[key].created_at || 0)) {
+        inventoryByProduct[key] = item;
+      }
+    }
+    // 3. Merge: for each master item, use local record if exists, else zero/defaults
+    const displayInventory = masterProducts.map(prod => {
+      const key = prod.name.toLowerCase();
+      const inv = inventoryByProduct[key];
+      return inv ? {
+        ...inv,
+        id: prod.id, // Always use the unique id from Supabase
+        name: prod.name,
+        price: prod.price,
+        qty: prod.qty
+      } : {
+        id: prod.id,
+        name: prod.name,
+        price: prod.price,
+        qty: prod.qty,
+        start: 0,
+        add: 0,
+        sold: 0,
+        left: 0,
+        total: 0
+      };
+    });
+    setInventoryItems(displayInventory);
+    console.log('Display inventory (master + latest local):', displayInventory);
+  };
+
   if (loading && !currentSession) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 flex items-center justify-center">
