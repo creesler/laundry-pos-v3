@@ -1726,6 +1726,21 @@ const EmployeePOSTerminal = () => {
     fetchLastTicketNumber();
   }, []);
 
+  // At the top of EmployeePOSTerminal (inside the component):
+  useEffect(() => {
+    // On mount, check if localDB has employees and skip prompt if so
+    (async () => {
+      if (localDB.getAllEmployees) {
+        await localDB.ready;
+        const localEmployees = await localDB.getAllEmployees();
+        if (localEmployees && localEmployees.length > 0) {
+          setEmployeeList(localEmployees);
+          setLoadingEmployees(false);
+        }
+      }
+    })();
+  }, []);
+
   if (loading && !currentSession) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 flex items-center justify-center">
