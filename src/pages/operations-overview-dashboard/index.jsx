@@ -1359,6 +1359,8 @@ const OperationsOverviewDashboard = () => {
       }
     }, [excelInventory, excelSession]);
 
+    const scrapedGrandTotal = scrapedInventoryTotal + scrapedWashDryTotal;
+
     return (
       <div className="mb-10 bg-white rounded-2xl shadow-xl p-8 print:p-2 border border-gray-200">
         {/* Date Picker for Daily Sheet Preview with left/right buttons */}
@@ -1559,7 +1561,7 @@ const OperationsOverviewDashboard = () => {
                     <tr><td className="py-1 font-semibold text-gray-700">Total Cash</td><td className="py-1 text-right">{excelSession.cash_total ? Number(excelSession.cash_total).toFixed(2) : ''}</td></tr>
                     <tr><td className="py-1 font-semibold text-gray-700">Inventory Total</td><td className="py-1 text-right">{scrapedInventoryTotal.toFixed(2)}</td></tr>
                     <tr><td className="py-1 font-semibold text-gray-700">Wash &amp; Dry Total</td><td className="py-1 text-right">{scrapedWashDryTotal.toFixed(2)}</td></tr>
-                    <tr><td className="py-1 font-bold text-blue-800">Grand Total</td><td className="py-1 text-right font-bold text-blue-800">{excelSession.grand_total ? Number(excelSession.grand_total).toFixed(2) : ''}</td></tr>
+                    <tr><td className="py-1 font-bold text-blue-800">Grand Total</td><td className="py-1 text-right font-bold text-blue-800">{scrapedGrandTotal.toFixed(2)}</td></tr>
                   </tbody>
                 </table>
               </div>
@@ -1607,7 +1609,7 @@ const OperationsOverviewDashboard = () => {
                 </div>
               </div>
             </div>
-            <div className="mt-6 font-bold text-right text-lg">GRAND TOTAL: ${excelSession.grand_total ? Number(excelSession.grand_total).toFixed(2) : ''}</div>
+            <div className="mt-6 font-bold text-right text-lg">GRAND TOTAL: ${scrapedGrandTotal.toFixed(2)}</div>
           </div>
         )}
       </div>
