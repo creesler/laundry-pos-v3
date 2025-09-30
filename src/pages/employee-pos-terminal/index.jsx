@@ -590,15 +590,11 @@ const EmployeePOSTerminal = () => {
 
   // Enhanced employee change handler with SOLD/ADD field reset logic
   const handleEmployeeChange = async (newEmployeeId) => {
-    // If the selected employee is the same, do nothing
     if (newEmployeeId === selectedEmployee) return;
-
-    // Check for unsaved changes
     if (hasUnsavedChanges()) {
       const shouldSave = window.confirm(
         `You have unsaved changes for current employee. Would you like to save your progress before switching to another employee?`
       );
-
       if (shouldSave) {
         try {
           setLoading(true);
@@ -610,36 +606,30 @@ const EmployeePOSTerminal = () => {
           );
           if (!proceedAnyway) {
             setLoading(false);
-            return; // Cancel the employee change
+            return;
           }
         } finally {
           setLoading(false);
         }
       }
     }
-
-    // Switch to new employee and reset only SOLD and ADD fields
     setSelectedEmployee(newEmployeeId);
     localStorage.setItem('selected_employee', newEmployeeId);
-
-    // Reset inventory for new shift: start = previous left, add/sold/total = 0, left = new start
     setInventoryItems(prev => prev.map(item => {
       const newStart = item.left;
       return {
         ...item,
-        start: newStart,   // Carry over the actual stock
+        start: newStart,
         add: 0,
         sold: 0,
         total: 0,
-        left: newStart     // left = start + add - sold = start
+        left: newStart
       };
     }));
-
     // Also reset tickets, cash, and notes for the new employee shift
     try {
-      // Generate new sequential tickets for the new employee
-      const ticketNumbers = await posService?.generateTicketNumbers(3);
-      let newTickets = ticketNumbers?.map((ticketNum, index) => ({
+      const ticketNumbers = getNextTicketNumbers(3);
+      let newTickets = ticketNumbers.map((ticketNum, index) => ({
         id: index + 1,
         ticketNumber: ticketNum,
         wash: 0,
@@ -647,58 +637,41 @@ const EmployeePOSTerminal = () => {
         total: 0
       }));
       setTickets(newTickets);
-      console.log(`✅ Generated fresh sequential tickets for ${newEmployeeId}: ${ticketNumbers?.join(', ')}`);
+      setCashData({ started: 0, added: 0, coinsUsed: 0, total: 0 });
+      setNotes('');
+      setActiveInput(null);
+      setCurrentInputValue('');
+      setIsInputMode(false);
+      // Check if a session for this employee and today exists
+      const today = new Date().toISOString().split('T')[0];
+      const { data: existingSessions, error } = await supabase
+        .from('pos_sessions')
+        .select('*')
+        .eq('employee_id', newEmployeeId)
+        .eq('session_date', today)
+        .limit(1);
+      if (!error && existingSessions && existingSessions.length > 0) {
+        setCurrentSession(existingSessions[0]);
+        console.log('Loaded existing session for employee and today:', existingSessions[0]);
+      } else {
+        // Create a new session
+        const newSessionId = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() :
+          'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+            const r = Math.random() * 16 | 0, v = c === 'x' ? r : (r & 0x3 | 0x8);
+            return v.toString(16);
+          });
+        setCurrentSession({
+          id: newSessionId,
+          created_at: new Date().toISOString(),
+          employee_id: newEmployeeId,
+          session_date: today,
+          status: 'active'
+        });
+        console.log('Created new session for employee and today:', newSessionId);
+      }
     } catch (error) {
-      console.error('Error generating tickets for new employee:', error);
-      // Fallback to default reset
-      setTickets([
-        { id: 1, ticketNumber: '001', wash: 0, dry: 0, total: 0 },
-        { id: 2, ticketNumber: '002', wash: 0, dry: 0, total: 0 },
-        { id: 3, ticketNumber: '003', wash: 0, dry: 0, total: 0 }
-      ]);
+      console.error('Error handling employee change/session lookup:', error);
     }
-
-    // Reset cash section for new employee shift
-    setCashData({
-      started: 0,
-      added: 0,
-      total: 0
-    });
-
-    // Reset notes for new employee
-    setNotes('');
-
-    // Clear any active input states
-    setActiveInput(null);
-    setCurrentInputValue('');
-    setIsInputMode(false);
-
-    // Show confirmation message specifying what was reset
-    alert(`Switched to new employee. 
-
-🔄 Reset for new employee shift:
-• START fields: Set to previous LEFT (actual stock)
-• SOLD fields: All reset to 0
-• ADD fields: All reset to 0
-• Cash section: Reset to 0
-• Tickets: Fresh sequential numbers generated
-• Notes: Cleared
-
-✅ START stock levels now match previous shift's actual stock.`);
-
-    // Generate a new session ID for the new employee/shift
-    const newSessionId = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() :
-      'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
-        const r = Math.random() * 16 | 0, v = c === 'x' ? r : (r & 0x3 | 0x8);
-        return v.toString(16);
-      });
-    console.log('Generated new session ID for employee:', newSessionId);
-    setCurrentSession({
-      id: newSessionId,
-      created_at: new Date().toISOString(),
-      employee_id: newEmployeeId,
-      status: 'active'
-    });
   };
 
   const loadEmployeeData = async () => {
@@ -1430,7 +1403,7 @@ const EmployeePOSTerminal = () => {
         console.log('--- Attempting to save session to Supabase ---');
         const { error: sessionError } = await supabase
               .from('pos_sessions')
-          .insert([sessionPayload]);
+          .upsert([sessionPayload], { onConflict: 'id' });
         if (sessionError && sessionError.code === '409' && retryCount < 2) {
           // 409 conflict: generate new session ID and retry
           const newSessionId = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() :
