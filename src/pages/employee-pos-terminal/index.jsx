@@ -1649,6 +1649,47 @@ const EmployeePOSTerminal = () => {
     console.log('Display inventory (master + latest local):', displayInventory);
   };
 
+  // Persist tickets to localDB after every change
+  useEffect(() => {
+    if (localDB.storeTickets) {
+      localDB.storeTickets(tickets).catch(e => console.error('Failed to save tickets to localDB:', e));
+    }
+  }, [tickets]);
+
+  // Persist cashData to localDB (as part of session) after every change
+  useEffect(() => {
+    if (localDB.getSession && localDB.storeSession && currentSession) {
+      localDB.getSession().then(session => {
+        const updatedSession = {
+          ...(session || {}),
+          id: currentSession.id,
+          created_at: currentSession.created_at,
+          employee_id: currentSession.employee_id,
+          status: currentSession.status,
+          cash_started: cashData.started,
+          cash_added: cashData.added,
+          cash_total: cashData.total,
+        };
+        localDB.storeSession(updatedSession).catch(e => console.error('Failed to save cashData to localDB:', e));
+      });
+    }
+  }, [cashData, currentSession]);
+
+  // On mount, restore cashData from localDB session if available
+  useEffect(() => {
+    if (localDB.getSession) {
+      localDB.getSession().then(localSession => {
+        if (localSession && (localSession.cash_started !== undefined || localSession.cash_added !== undefined)) {
+          setCashData({
+            started: localSession.cash_started || 0,
+            added: localSession.cash_added || 0,
+            total: localSession.cash_total || 0,
+          });
+        }
+      });
+    }
+  }, []);
+
   if (loading && !currentSession) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 flex items-center justify-center">
