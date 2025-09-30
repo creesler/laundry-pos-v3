@@ -1501,22 +1501,18 @@ const OperationsOverviewDashboard = () => {
               <tbody>
                 {/* Combine duplicate items by item_name for this session */}
                 {(() => {
-                  const combined = {};
+                  const latestByItem = {};
                   (excelInventory || []).forEach(item => {
                     const key = item.item_name;
-                    if (!combined[key]) {
-                      combined[key] = { ...item };
-                    } else {
-                      // Only sum numeric fields except quantity (QTY) and price
-                      combined[key].start_count = (combined[key].start_count || 0) + (item.start_count || 0);
-                      combined[key].add_count = (combined[key].add_count || 0) + (item.add_count || 0);
-                      combined[key].sold_count = (combined[key].sold_count || 0) + (item.sold_count || 0);
-                      combined[key].left_count = (combined[key].left_count || 0) + (item.left_count || 0);
-                      combined[key].total_amount = (combined[key].total_amount || 0) + (item.total_amount || 0);
-                      // Do NOT sum price or quantity; keep the first occurrence
+                    if (
+                      !latestByItem[key] ||
+                      new Date(item.updated_at || item.created_at) > new Date(latestByItem[key].updated_at || latestByItem[key].created_at)
+                    ) {
+                      latestByItem[key] = item;
                     }
                   });
-                  return Object.values(combined).map((item, idx) => (
+                  const displayRows = Object.values(latestByItem);
+                  return displayRows.map((item, idx) => (
                     <tr key={item.id + '-' + item.item_name}
                         className={idx % 2 === 0 ? 'bg-gray-50 hover:bg-blue-50 transition' : 'bg-white hover:bg-blue-50 transition'}>
                       <td className="border px-3 py-2 font-medium text-gray-800">{item.item_name}</td>
