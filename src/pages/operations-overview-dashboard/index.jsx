@@ -1555,14 +1555,28 @@ const OperationsOverviewDashboard = () => {
                       </tr>
                     </thead>
                     <tbody>
-                      {(excelSession.pos_wash_dry_tickets || []).map(ticket => (
-                        <tr key={ticket.id}>
-                          <td className="border px-2 py-1">{ticket.ticket_number}</td>
-                          <td className="border px-2 py-1">{ticket.wash_amount ? Number(ticket.wash_amount).toFixed(2) : ''}</td>
-                          <td className="border px-2 py-1">{ticket.dry_amount ? Number(ticket.dry_amount).toFixed(2) : ''}</td>
-                          <td className="border px-2 py-1">{ticket.total_amount ? Number(ticket.total_amount).toFixed(2) : ''}</td>
-                        </tr>
-                      ))}
+                      {(() => {
+                        const latestTicketsByNumber = {};
+                        (excelSession?.pos_wash_dry_tickets || []).forEach(ticket => {
+                          const key = ticket.ticket_number;
+                          if (
+                            !latestTicketsByNumber[key] ||
+                            new Date(ticket.updated_at || ticket.created_at) > new Date(latestTicketsByNumber[key].updated_at || latestTicketsByNumber[key].created_at)
+                          ) {
+                            latestTicketsByNumber[key] = ticket;
+                          }
+                        });
+                        const displayTickets = Object.values(latestTicketsByNumber);
+                        return displayTickets.map((ticket, idx) => (
+                          <tr key={ticket.id}
+                              className={idx % 2 === 0 ? 'bg-gray-50 hover:bg-blue-50 transition' : 'bg-white hover:bg-blue-50 transition'}>
+                            <td className="border px-2 py-1">{ticket.ticket_number}</td>
+                            <td className="border px-2 py-1">{ticket.wash_amount ? Number(ticket.wash_amount).toFixed(2) : ''}</td>
+                            <td className="border px-2 py-1">{ticket.dry_amount ? Number(ticket.dry_amount).toFixed(2) : ''}</td>
+                            <td className="border px-2 py-1">{ticket.total_amount ? Number(ticket.total_amount).toFixed(2) : ''}</td>
+                          </tr>
+                        ));
+                      })()}
                     </tbody>
                   </table>
                 </div>
