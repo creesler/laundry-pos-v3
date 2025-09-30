@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import Header from '../../components/ui/Header';
 import Icon from '../../components/AppIcon';
 import Input from '../../components/ui/Input';
@@ -1339,6 +1339,26 @@ const OperationsOverviewDashboard = () => {
       current.setDate(current.getDate() + days);
       setExcelDate(current.toISOString().split('T')[0]);
     };
+    const inventoryTableRef = useRef();
+    const ticketTableRef = useRef();
+    const [scrapedInventoryTotal, setScrapedInventoryTotal] = useState(0);
+    const [scrapedWashDryTotal, setScrapedWashDryTotal] = useState(0);
+
+    useEffect(() => {
+      // Scrape inventory totals
+      if (inventoryTableRef.current) {
+        const totalCells = inventoryTableRef.current.querySelectorAll('.inventory-total-cell');
+        const sum = Array.from(totalCells).reduce((acc, cell) => acc + (parseFloat(cell.textContent) || 0), 0);
+        setScrapedInventoryTotal(sum);
+      }
+      // Scrape ticket totals
+      if (ticketTableRef.current) {
+        const totalCells = ticketTableRef.current.querySelectorAll('.ticket-total-cell');
+        const sum = Array.from(totalCells).reduce((acc, cell) => acc + (parseFloat(cell.textContent) || 0), 0);
+        setScrapedWashDryTotal(sum);
+      }
+    }, [excelInventory, excelSession]);
+
     return (
       <div className="mb-10 bg-white rounded-2xl shadow-xl p-8 print:p-2 border border-gray-200">
         {/* Date Picker for Daily Sheet Preview with left/right buttons */}
@@ -1485,7 +1505,7 @@ const OperationsOverviewDashboard = () => {
           <div className="text-center py-8 text-gray-500">No session data found for this date.</div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="min-w-full border border-gray-300 text-xs print:text-sm">
+            <table className="min-w-full border border-gray-300 text-xs print:text-sm" ref={inventoryTableRef}>
               <thead>
                 <tr className="bg-blue-50 text-blue-900">
                   <th className="border px-3 py-2 font-semibold">ITEM</th>
@@ -1522,7 +1542,7 @@ const OperationsOverviewDashboard = () => {
                       <td className="border px-3 py-2 text-right">{item.add_count || ''}</td>
                       <td className="border px-3 py-2 text-right">{item.sold_count || ''}</td>
                       <td className="border px-3 py-2 text-right">{item.left_count || ''}</td>
-                      <td className="border px-3 py-2 text-right font-semibold text-blue-700">{item.total_amount ? Number(item.total_amount).toFixed(2) : ''}</td>
+                      <td className="border px-3 py-2 text-right font-semibold text-blue-700 inventory-total-cell">{item.total_amount ? Number(item.total_amount).toFixed(2) : ''}</td>
                     </tr>
                   ));
                 })()}
@@ -1537,15 +1557,15 @@ const OperationsOverviewDashboard = () => {
                     <tr><td className="py-1 font-semibold text-gray-700">Cash Started</td><td className="py-1 text-right">{excelSession.cash_started ? Number(excelSession.cash_started).toFixed(2) : ''}</td></tr>
                     <tr><td className="py-1 font-semibold text-gray-700">Cash Added</td><td className="py-1 text-right">{excelSession.cash_added ? Number(excelSession.cash_added).toFixed(2) : ''}</td></tr>
                     <tr><td className="py-1 font-semibold text-gray-700">Total Cash</td><td className="py-1 text-right">{excelSession.cash_total ? Number(excelSession.cash_total).toFixed(2) : ''}</td></tr>
-                    <tr><td className="py-1 font-semibold text-gray-700">Inventory Total</td><td className="py-1 text-right">{excelSession.inventory_total ? Number(excelSession.inventory_total).toFixed(2) : ''}</td></tr>
-                    <tr><td className="py-1 font-semibold text-gray-700">Wash &amp; Dry Total</td><td className="py-1 text-right">{excelSession.wash_dry_total ? Number(excelSession.wash_dry_total).toFixed(2) : ''}</td></tr>
+                    <tr><td className="py-1 font-semibold text-gray-700">Inventory Total</td><td className="py-1 text-right">{scrapedInventoryTotal.toFixed(2)}</td></tr>
+                    <tr><td className="py-1 font-semibold text-gray-700">Wash &amp; Dry Total</td><td className="py-1 text-right">{scrapedWashDryTotal.toFixed(2)}</td></tr>
                     <tr><td className="py-1 font-bold text-blue-800">Grand Total</td><td className="py-1 text-right font-bold text-blue-800">{excelSession.grand_total ? Number(excelSession.grand_total).toFixed(2) : ''}</td></tr>
                   </tbody>
                 </table>
               </div>
               <div className="flex-1 flex gap-8">
                 <div className="flex-1">
-                  <table className="border border-gray-300 mt-2 min-w-[320px]">
+                  <table className="border border-gray-300 mt-2 min-w-[320px]" ref={ticketTableRef}>
                     <thead>
                       <tr className="bg-gray-100">
                         <th className="border px-2 py-1">Ticket #</th>
@@ -1573,7 +1593,7 @@ const OperationsOverviewDashboard = () => {
                             <td className="border px-2 py-1">{ticket.ticket_number}</td>
                             <td className="border px-2 py-1">{ticket.wash_amount ? Number(ticket.wash_amount).toFixed(2) : ''}</td>
                             <td className="border px-2 py-1">{ticket.dry_amount ? Number(ticket.dry_amount).toFixed(2) : ''}</td>
-                            <td className="border px-2 py-1">{ticket.total_amount ? Number(ticket.total_amount).toFixed(2) : ''}</td>
+                            <td className="border px-2 py-1 ticket-total-cell">{ticket.total_amount ? Number(ticket.total_amount).toFixed(2) : ''}</td>
                           </tr>
                         ));
                       })()}
