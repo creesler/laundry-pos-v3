@@ -1646,9 +1646,6 @@ const EmployeePOSTerminal = () => {
       // Check if we already have a session for this employee and date
       const today = new Date().toISOString().split('T')[0];
       let existingSession = await localDB.getSessionByEmployeeAndDate(selectedEmployee, today);
-    } finally {
-      setLoading(false);
-    }
 
       // Create or update session
       // Validate employee ID before creating session
@@ -2277,7 +2274,7 @@ const EmployeePOSTerminal = () => {
         alert('No internet connection. Data saved to local storage only.');
       } else if (err.message?.includes('localDB')) {
         alert('Error with local storage. Please try again.');
-          } else {
+      } else {
         alert('Error saving data. Please try again.');
       }
     } finally {
