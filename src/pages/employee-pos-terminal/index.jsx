@@ -2481,13 +2481,13 @@ const EmployeePOSTerminal = () => {
           setCashData({ started: 0, added: 0, coinsUsed: 0, total: 0 });
           setNotes('');
           setInventoryItems([]);
-            const defaultTickets = [
+          const defaultTickets = [
             { id: crypto.randomUUID(), ticketNumber: '', wash: 0, dry: 0, total: 0, pos_session_id: newSession.id },
             { id: crypto.randomUUID(), ticketNumber: '', wash: 0, dry: 0, total: 0, pos_session_id: newSession.id },
             { id: crypto.randomUUID(), ticketNumber: '', wash: 0, dry: 0, total: 0, pos_session_id: newSession.id }
           ];
           await localDB.storeTickets(defaultTickets);
-            setTickets(defaultTickets);
+          setTickets(defaultTickets);
         }
       }
     };
@@ -2496,7 +2496,7 @@ const EmployeePOSTerminal = () => {
     return () => {
       isMounted = false;
     };
-  }, [selectedEmployee]); // Re-run when selected employee changes
+  }, [selectedEmployee, currentSession]); // Re-run when selected employee or session changes
 
   // Helper: Merge master inventory with local/latest inventory
   const mergeMasterWithLocalInventory = async () => {
