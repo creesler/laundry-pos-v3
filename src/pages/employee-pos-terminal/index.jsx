@@ -33,8 +33,13 @@ async function testDatabaseConnection() {
     
     // 2. If no items, try to insert test data (if we have write permissions)
     if (!existingItems || existingItems.length === 0) {
-      // Following offline-first principle - no default test items
-      const testItems = [];
+      const testItems = [
+        { item_name: 'Downy 19 oz', price: 5.50 },
+        { item_name: 'Gain Sheets 15ct', price: 2.25 },
+        { item_name: 'Roma 17 63 oz', price: 2.75 },
+        { item_name: 'Xtra 56 oz', price: 5.50 },
+        { item_name: 'Clorox 16 oz', price: 2.50 }
+      ];
       
       await supabase
         .from('pos_inventory_items')
@@ -126,8 +131,66 @@ const EmployeePOSTerminal = () => {
     setShowClockOutPrompt(false);
   }
   
-  // Local state for inventory - following offline-first principle
-  const [inventoryItems, setInventoryItems] = useState([]);
+  // Local state for inventory
+
+  // Inventory data
+  const [inventoryItems, setInventoryItems] = useState([
+    {
+      id: 1,
+      name: 'Downy 19 oz',
+      qty: 1,
+      price: 5.50,
+      start: 0,
+      add: 0,
+      sold: 0,
+      left: 0,
+      total: 0
+    },
+    {
+      id: 2,
+      name: 'Gain Sheets 15ct',
+      qty: 1,
+      price: 2.25,
+      start: 0,
+      add: 0,
+      sold: 0,
+      left: 0,
+      total: 0
+    },
+    {
+      id: 3,
+      name: 'Roma 17 63 oz',
+      qty: 1,
+      price: 2.75,
+      start: 0,
+      add: 0,
+      sold: 0,
+      left: 0,
+      total: 0
+    },
+    {
+      id: 4,
+      name: 'Xtra 56 oz',
+      qty: 1,
+      price: 5.50,
+      start: 0,
+      add: 0,
+      sold: 0,
+      left: 0,
+      total: 0
+    },
+    {
+      id: 5,
+      name: 'Clorox 16 oz',
+      qty: 1,
+      price: 2.50,
+      start: 0,
+      add: 0,
+      sold: 0,
+      left: 0,
+      total: 0
+    }
+  ]);
 
   // Current ticket input
   const [tickets, setTickets] = useState([
@@ -154,11 +217,11 @@ const EmployeePOSTerminal = () => {
 
   const [notes, setNotes] = useState('');
 
-  // Handle ticket field changes - restored original working code
+  // Handle ticket field changes
   const handleFieldChange = (field, value, id) => {
     setTickets(prev => prev.map(ticket => {
       if (ticket.id === id) {
-        const updatedTicket = { ...ticket };
+        let updatedTicket = { ...ticket };
         
         if (field === 'wash' || field === 'dry') {
           // Convert to number, default to previous value if invalid
@@ -168,20 +231,11 @@ const EmployeePOSTerminal = () => {
           // Calculate total
           const wash = field === 'wash' ? numValue : (ticket.wash || 0);
           const dry = field === 'dry' ? numValue : (ticket.dry || 0);
-          updatedTicket.total = wash + dry;
+          updatedTicket.total = Math.round((wash + dry) * 100) / 100; // Round to 2 decimal places
         } else {
           // For non-numeric fields (like ticketNumber)
           updatedTicket[field] = value;
         }
-        
-        // Update totals
-        const washDrySubtotal = prev.reduce((sum, t) => sum + (t.total || 0), 0);
-        const inventorySalesTotal = inventoryItems.reduce((sum, item) => sum + (item.total || 0), 0);
-        setTotals({
-          washDrySubtotal,
-          inventorySalesTotal,
-          grandTotal: washDrySubtotal + inventorySalesTotal
-        });
         
         return updatedTicket;
       }
@@ -189,7 +243,7 @@ const EmployeePOSTerminal = () => {
     }));
   };
 
-  // Handle inserting a new ticket - restored original working code
+  // Handle inserting a new ticket
   const handleInsertTicket = async () => {
     try {
       setLoading(true);
@@ -209,26 +263,11 @@ const EmployeePOSTerminal = () => {
         return;
       }
 
-      // Get or create session for ticket
-      let session = await localDB.getSessionByEmployeeAndDate(selectedEmployee, getTodayDate());
-      if (!session) {
-        // Create new session if none exists
-        session = {
-          id: crypto.randomUUID(),
-          created_at: new Date().toISOString(),
-          session_date: getTodayDate(),
-          employee_id: selectedEmployee,
-          status: 'active'
-        };
-        await localDB.storeSession(session);
-        setCurrentSession(session);
-      }
-
-      // Create new ticket with session ID
+      // Create new ticket with current session
       const newTicket = {
         ...currentTicket,
         id: crypto.randomUUID(),
-        pos_session_id: session.id, // Use session.id instead of currentSession?.id
+        pos_session_id: currentSession?.id,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
       };
@@ -236,11 +275,20 @@ const EmployeePOSTerminal = () => {
       // Save to localDB
       await localDB.storeTickets([newTicket]);
 
-      // Add to history
-      setAllStoredTickets(prev => {
-        const updatedTickets = [newTicket, ...prev.filter(t => t.id !== 'message')];
-        return updatedTickets.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+      // Load all tickets again to ensure we have the latest
+      const allTickets = await localDB.getAllTickets();
+      const validTickets = allTickets.filter(ticket => 
+        ticket.id !== 'message' &&
+        ticket.pos_session_id === currentSession?.id && // Only show tickets for current session
+        (ticket.ticketNumber || ticket.ticket_number) &&
+        ((ticket.wash > 0 || ticket.dry > 0) ||
+         (ticket.wash_amount > 0 || ticket.dry_amount > 0))
+      ).sort((a, b) => {
+        const dateA = new Date(a.created_at || 0);
+        const dateB = new Date(b.created_at || 0);
+        return dateB - dateA; // Most recent first
       });
+      setAllStoredTickets(validTickets);
 
       // Reset input ticket
       setTickets([{
@@ -304,31 +352,34 @@ const EmployeePOSTerminal = () => {
     }
   };
 
-  // Load inventory items from localDB only - strictly following offline-first principle
-  const loadInventoryItems = async () => {
+  // Load master inventory items from local data
+  const loadMasterInventoryItems = async () => {
     try {
-      console.log('🔍 Starting inventory load from localDB...');
       setLoading(true);
       
-      // Get inventory items from localDB only
-      const localInventory = await localDB.getAllInventoryItems();
-      console.log('📦 Raw inventory from localDB:', localInventory);
+      // Define local inventory items with default values
+      const defaultInventory = [
+        { id: 1, name: 'Downy 19 oz', qty: 1, price: 5.50, start: 0, add: 0, sold: 0, left: 0, total: 0 },
+        { id: 2, name: 'Gain Sheets 15ct', qty: 1, price: 2.25, start: 0, add: 0, sold: 0, left: 0, total: 0 },
+        { id: 3, name: 'Roma 17 63 oz', qty: 1, price: 2.75, start: 0, add: 0, sold: 0, left: 0, total: 0 },
+        { id: 4, name: 'Xtra 56 oz', qty: 1, price: 5.50, start: 0, add: 0, sold: 0, left: 0, total: 0 },
+        { id: 5, name: 'Clorox 16 oz', qty: 1, price: 2.50, start: 0, add: 0, sold: 0, left: 0, total: 0 }
+      ];
       
-      // Set inventory items from localDB, empty array if none found
-      setInventoryItems(localInventory || []);
-      console.log('✅ Loaded inventory items from localDB:', {
-        count: localInventory?.length || 0,
-        items: localInventory?.map(item => ({
-          name: item.name,
-          id: item.id,
-          session_id: item.pos_session_id
-        }))
-      });
+      // Set the inventory items
+      setInventoryItems(defaultInventory);
+      console.log('✅ Loaded default inventory items');
       
     } catch (error) {
       console.error('Error loading inventory items:', error);
-      // Following offline-first principle - no default items on error
-      setInventoryItems([]);
+      // Use fallback inventory on error
+      setInventoryItems([
+        { id: 1, name: 'Downy 19 oz', qty: 1, price: 5.50, start: 0, add: 0, sold: 0, left: 0, total: 0 },
+        { id: 2, name: 'Gain Sheets 15ct', qty: 1, price: 2.25, start: 0, add: 0, sold: 0, left: 0, total: 0 },
+        { id: 3, name: 'Roma 17 63 oz', qty: 1, price: 2.75, start: 0, add: 0, sold: 0, left: 0, total: 0 },
+        { id: 4, name: 'Xtra 56 oz', qty: 1, price: 5.50, start: 0, add: 0, sold: 0, left: 0, total: 0 },
+        { id: 5, name: 'Clorox 16 oz', qty: 1, price: 2.50, start: 0, add: 0, sold: 0, left: 0, total: 0 }
+      ]);
     } finally {
       setLoading(false);
     }
@@ -488,7 +539,7 @@ const EmployeePOSTerminal = () => {
   // Enhanced resetAllFields with improved ticket number generation
   const resetAllFields = async () => {
     // Reset inventory items to default zero values but reload from master items
-    await loadInventoryItems();
+    await loadMasterInventoryItems();
 
     // Enhanced: Generate new sequential tickets with guaranteed database sync
     try {
@@ -741,8 +792,7 @@ const EmployeePOSTerminal = () => {
 
       // Load tickets for current session
       const allStoredTickets = await localDB.getAllTickets();
-      const currentSessionData = await localDB.getSessionByEmployeeAndDate(selectedEmployee, getTodayDate());
-      const currentSessionId = currentSessionData?.id || currentSession?.id;
+      const currentSessionId = existingSession?.id || newSession?.id;
       
       // Filter tickets for current session
       const sessionTickets = allStoredTickets.filter(ticket => 
@@ -852,9 +902,16 @@ const EmployeePOSTerminal = () => {
       // Set default clock status to clocked-out for all users
       setClockStatus('clocked-out');
       
-      // Following offline-first principle - no default inventory
-      const localInventory = await localDB.getAllInventoryItems();
-      setInventoryItems(localInventory || []);
+      // Set default inventory items
+      const defaultInventory = [
+        { id: 1, name: 'Downy 19 oz', qty: 1, price: 5.50, start: 0, add: 0, sold: 0, left: 0, total: 0 },
+        { id: 2, name: 'Gain Sheets 15ct', qty: 1, price: 2.25, start: 0, add: 0, sold: 0, left: 0, total: 0 },
+        { id: 3, name: 'Roma 17 63 oz', qty: 1, price: 2.75, start: 0, add: 0, sold: 0, left: 0, total: 0 },
+        { id: 4, name: 'Xtra 56 oz', qty: 1, price: 5.50, start: 0, add: 0, sold: 0, left: 0, total: 0 },
+        { id: 5, name: 'Clorox 16 oz', qty: 1, price: 2.50, start: 0, add: 0, sold: 0, left: 0, total: 0 }
+      ];
+      
+      setInventoryItems(defaultInventory);
       
       // Initialize with default ticket numbers and unique IDs
       const defaultTickets = [
@@ -1475,46 +1532,9 @@ const EmployeePOSTerminal = () => {
       
       // Step 1: Always try to download and store initial data when Save Progress is clicked
       if (navigator.onLine) {
-        console.log('🔄 Starting data download from server...');
-        console.log('📊 Current inventory state:', {
-          items: inventoryItems?.map(item => ({
-            name: item.name,
-            id: item.id,
-            session_id: item.pos_session_id
-          }))
-        });
+        console.log('🔄 Downloading latest data from server...');
         
-        // Fetch and store master inventory first
-        console.log('📦 Downloading master inventory from server...');
-        const { data: masterInventory, error: invError } = await supabase.from('master_inventory_items').select('*');
-        if (!invError && masterInventory?.length > 0) {
-          console.log('✅ Downloaded master inventory:', masterInventory.length, 'items');
-          
-          // Transform master inventory items
-          const formattedInventory = masterInventory.map(item => ({
-            id: item.id,
-            name: item.item_name,
-            qty: item.quantity || 1,
-            price: Number(item.price || 0),
-            start: 0,
-            add: 0,
-            sold: 0,
-            left: 0,
-            total: 0,
-            pos_session_id: currentSession?.id
-          }));
-          
-          // Store in localDB
-          await localDB.storeInventoryItems(formattedInventory);
-          console.log('✅ Stored master inventory in localDB');
-          
-          // Update state
-          setInventoryItems(formattedInventory);
-        } else if (invError) {
-          console.error('Error downloading master inventory:', invError);
-        }
-
-        // Fetch and store employees
+        // Fetch and store employees first
         const { data: employees, error: empError } = await supabase.from('user_profiles').select('*');
         if (empError) {
           console.error('Error fetching employees:', empError);
@@ -1595,8 +1615,49 @@ const EmployeePOSTerminal = () => {
           }]);
         }
 
-        // Following offline-first principle - no master inventory loading
-        // All inventory items should come from localDB
+        // Fetch and store master inventory
+        const { data: masterInventory, error: invError } = await supabase.from('master_inventory_items').select('*');
+        if (!invError && masterInventory?.length > 0) {
+          // Get existing inventory from localDB first
+          const existingInventory = await localDB.getAllInventoryItems();
+          const existingMap = {};
+          
+          // Create a map of the most recent values for each item
+          existingInventory.forEach(item => {
+            if (item.name) {
+              const key = item.name.toLowerCase();
+              if (!existingMap[key] || new Date(item.created_at || 0) > new Date(existingMap[key].created_at || 0)) {
+                existingMap[key] = item;
+              }
+            }
+          });
+
+          // Transform master inventory items while preserving existing values
+          const formattedInventory = masterInventory.map(item => {
+            const existingItem = existingMap[item.item_name.toLowerCase()];
+            return {
+              id: item.id,
+              name: item.item_name,
+              qty: item.quantity || existingItem?.qty || 1,
+              price: Number(item.price || existingItem?.price || 0),
+              start: existingItem?.left || existingItem?.start || 0,
+              add: 0,
+              sold: 0,
+              left: existingItem?.left || existingItem?.start || 0,
+              total: 0,
+              pos_session_id: currentSession?.id // Ensure session ID is set
+            };
+          });
+          
+          console.log('Merging master inventory with existing values:', {
+            existing: existingMap,
+            formatted: formattedInventory
+          });
+          
+          await localDB.storeInventoryItems(formattedInventory);
+          setInventoryItems(formattedInventory);
+          console.log('✅ Downloaded and stored master inventory:', masterInventory.length);
+        }
       }
 
       // Check if we already have a session for this employee and date
@@ -2230,7 +2291,7 @@ const EmployeePOSTerminal = () => {
         alert('No internet connection. Data saved to local storage only.');
       } else if (err.message?.includes('localDB')) {
         alert('Error with local storage. Please try again.');
-      } else {
+          } else {
         alert('Error saving data. Please try again.');
       }
     } finally {
@@ -2374,14 +2435,59 @@ const EmployeePOSTerminal = () => {
 
             let inventoryStructure = [];
             
-            // Following offline-first principle - only use local inventory
+            // If we have items in localDB, use those
             if (uniqueItems.length > 0) {
-              setInventoryItems(uniqueItems);
-              console.log('Using inventory from localDB:', uniqueItems.length, 'items');
+              inventoryStructure = uniqueItems;
+              console.log('Using inventory structure from localDB:', uniqueItems);
+            }
+            // If online, try to get from Supabase
+            else if (navigator.onLine) {
+              try {
+                const { data: masterInventory } = await supabase.from('master_inventory_items').select('*');
+                if (masterInventory?.length > 0) {
+                  inventoryStructure = masterInventory;
+                  console.log('Using inventory structure from Supabase:', masterInventory);
+                }
+              } catch (error) {
+                console.log('Failed to fetch master inventory (offline mode):', error);
+                // In case of error, fall back to local structure if available
+                if (uniqueItems.length > 0) {
+                  inventoryStructure = uniqueItems;
+                  console.log('Falling back to local inventory structure:', uniqueItems);
+                }
+              }
+            }
+
+            // If we have any inventory structure, use it
+            if (inventoryStructure.length > 0) {
+              const defaultInventory = inventoryStructure.map(item => {
+                const latestItem = latestInventoryMap[item.item_name?.toLowerCase() || item.name?.toLowerCase()];
+                return {
+                  id: item.id,
+                  name: item.item_name || item.name,
+                  qty: item.quantity || latestItem?.qty || 1,
+                  price: Number(item.price || latestItem?.price || 0),
+                  start: latestItem?.left || latestItem?.start || 0,
+                  add: 0,
+                  sold: 0,
+                  left: latestItem?.left || latestItem?.start || 0,
+                  total: 0,
+                  pos_session_id: session.id
+                };
+              });
+              
+              console.log('Initializing inventory with latest values:', {
+                latest: latestInventoryMap,
+                new: defaultInventory
+              });
+              
+              setInventoryItems(defaultInventory);
+              // Store the initialized inventory
+              await localDB.storeInventoryItems(defaultInventory);
             } else {
               setInventoryItems([]);
-              console.log('No inventory items found in localDB');
             }
+          }
 
           const localTickets = await localDB.getAllTickets();
           const sessionTickets = localTickets.filter(ticket => ticket.pos_session_id === session.id);
@@ -2398,9 +2504,8 @@ const EmployeePOSTerminal = () => {
             // Store the default tickets
             await localDB.storeTickets(defaultTickets);
           }
-        }
-        
-        // If no session exists, create a new one
+        } else {
+          // No session found, create a new one
           const newSession = {
             id: crypto.randomUUID(),
             created_at: new Date().toISOString(),
