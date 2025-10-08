@@ -33,13 +33,8 @@ async function testDatabaseConnection() {
     
     // 2. If no items, try to insert test data (if we have write permissions)
     if (!existingItems || existingItems.length === 0) {
-      const testItems = [
-        { item_name: 'Downy 19 oz', price: 5.50 },
-        { item_name: 'Gain Sheets 15ct', price: 2.25 },
-        { item_name: 'Roma 17 63 oz', price: 2.75 },
-        { item_name: 'Xtra 56 oz', price: 5.50 },
-        { item_name: 'Clorox 16 oz', price: 2.50 }
-      ];
+      // Following offline-first principle - no default test items
+      const testItems = [];
       
       await supabase
         .from('pos_inventory_items')
