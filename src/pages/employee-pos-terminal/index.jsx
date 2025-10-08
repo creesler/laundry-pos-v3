@@ -209,11 +209,26 @@ const EmployeePOSTerminal = () => {
         return;
       }
 
-      // Create new ticket with current session
+      // Get or create session for ticket
+      let session = await localDB.getSessionByEmployeeAndDate(selectedEmployee, getTodayDate());
+      if (!session) {
+        // Create new session if none exists
+        session = {
+          id: crypto.randomUUID(),
+          created_at: new Date().toISOString(),
+          session_date: getTodayDate(),
+          employee_id: selectedEmployee,
+          status: 'active'
+        };
+        await localDB.storeSession(session);
+        setCurrentSession(session);
+      }
+
+      // Create new ticket with session ID
       const newTicket = {
         ...currentTicket,
         id: crypto.randomUUID(),
-        pos_session_id: currentSession?.id,
+        pos_session_id: session.id, // Use session.id instead of currentSession?.id
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
       };
