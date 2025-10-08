@@ -134,63 +134,8 @@ const EmployeePOSTerminal = () => {
   // Local state for inventory
 
   // Inventory data
-  const [inventoryItems, setInventoryItems] = useState([
-    {
-      id: 1,
-      name: 'Downy 19 oz',
-      qty: 1,
-      price: 5.50,
-      start: 0,
-      add: 0,
-      sold: 0,
-      left: 0,
-      total: 0
-    },
-    {
-      id: 2,
-      name: 'Gain Sheets 15ct',
-      qty: 1,
-      price: 2.25,
-      start: 0,
-      add: 0,
-      sold: 0,
-      left: 0,
-      total: 0
-    },
-    {
-      id: 3,
-      name: 'Roma 17 63 oz',
-      qty: 1,
-      price: 2.75,
-      start: 0,
-      add: 0,
-      sold: 0,
-      left: 0,
-      total: 0
-    },
-    {
-      id: 4,
-      name: 'Xtra 56 oz',
-      qty: 1,
-      price: 5.50,
-      start: 0,
-      add: 0,
-      sold: 0,
-      left: 0,
-      total: 0
-    },
-    {
-      id: 5,
-      name: 'Clorox 16 oz',
-      qty: 1,
-      price: 2.50,
-      start: 0,
-      add: 0,
-      sold: 0,
-      left: 0,
-      total: 0
-    }
-  ]);
+  // Start with empty inventory - following offline-first principle
+  const [inventoryItems, setInventoryItems] = useState([]);
 
   // Current ticket input
   const [tickets, setTickets] = useState([
@@ -1608,7 +1553,13 @@ const EmployeePOSTerminal = () => {
         }
 
         // Fetch and store master inventory
+        console.log('🔄 Downloading master inventory items...');
         const { data: masterInventory, error: invError } = await supabase.from('master_inventory_items').select('*');
+        if (invError) {
+          console.error('❌ Error downloading master inventory:', invError);
+        } else {
+          console.log('✅ Found master inventory items:', masterInventory?.length);
+        }
         if (!invError && masterInventory?.length > 0) {
           // Get existing inventory from localDB first
           const existingInventory = await localDB.getAllInventoryItems();
