@@ -75,15 +75,10 @@ class LocalDB {
     return new Promise((resolve, reject) => {
       const transaction = this.db.transaction(['employeeProfiles'], 'readwrite');
       const store = transaction.objectStore('employeeProfiles');
+      const request = store.put(employee);
       
-      transaction.onerror = () => reject(transaction.error);
-      transaction.oncomplete = () => resolve();
-      
-      try {
-        store.put(employee);
-      } catch (error) {
-        reject(error);
-      }
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => resolve(request.result);
     });
   }
 
@@ -106,23 +101,52 @@ class LocalDB {
       const store = transaction.objectStore('posInventoryItems');
       const latestStore = transaction.objectStore('latestInventory');
       
-      transaction.onerror = () => reject(transaction.error);
-      transaction.oncomplete = () => resolve();
-
-      try {
-        // Add synced: 0 to each item
-        const itemsToStore = items.map(item => ({
+      // Add synced: 0 to each item (using number instead of boolean)
+      const itemsToStore = items.map(item => ({
+        ...item,
+        synced: 0
+      }));
+      
+      let completed = 0;
+      let errors = [];
+      const totalOperations = items.length * 2; // Double because we're doing two operations per item
+      
+      itemsToStore.forEach(item => {
+        // Store the full record in posInventoryItems
+        // Generate a unique ID for each inventory item per session
+        const itemWithId = {
           ...item,
-          synced: 0,
           id: item.id || `${item.pos_session_id}_${item.name}_${Date.now()}`
-        }));
+        };
+        const request = store.put(itemWithId);
+        request.onerror = () => {
+          errors.push(request.error);
+          completed++;
+          if (completed === totalOperations) {
+            if (errors.length > 0) reject(errors);
+            else resolve();
+          }
+        };
+        request.onsuccess = () => {
+          completed++;
+          if (completed === totalOperations) {
+            if (errors.length > 0) reject(errors);
+            else resolve();
+          }
+        };
 
-        // Store each item
-        for (const item of itemsToStore) {
-          // Store in posInventoryItems
-          store.put(item);
-
-          // Update latestInventory
+        // Update latest state in latestInventory
+        const latestRequest = latestStore.get(item.name);
+        latestRequest.onerror = () => {
+          errors.push(latestRequest.error);
+          completed++;
+          if (completed === totalOperations) {
+            if (errors.length > 0) reject(errors);
+            else resolve();
+          }
+        };
+        latestRequest.onsuccess = () => {
+          const existingItem = latestRequest.result;
           const latestItem = {
             name: item.name,
             price: item.price,
@@ -131,20 +155,30 @@ class LocalDB {
             updated_at: new Date().toISOString()
           };
           
-          // Get existing item to preserve highest values
-          const existingRequest = latestStore.get(item.name);
-          existingRequest.onsuccess = () => {
-            const existingItem = existingRequest.result;
-            if (existingItem) {
-              latestItem.start = Math.max(existingItem.start, item.start);
-              latestItem.left = Math.max(existingItem.left, item.left);
+          if (existingItem) {
+            // Keep the higher start/left values
+            latestItem.start = Math.max(existingItem.start, item.start);
+            latestItem.left = Math.max(existingItem.left, item.left);
+          }
+          
+          const updateRequest = latestStore.put(latestItem);
+          updateRequest.onerror = () => {
+            errors.push(updateRequest.error);
+            completed++;
+            if (completed === totalOperations) {
+              if (errors.length > 0) reject(errors);
+              else resolve();
             }
-            latestStore.put(latestItem);
           };
-        }
-      } catch (error) {
-        reject(error);
-      }
+          updateRequest.onsuccess = () => {
+            completed++;
+            if (completed === totalOperations) {
+              if (errors.length > 0) reject(errors);
+              else resolve();
+            }
+          };
+        };
+      });
     });
   }
 

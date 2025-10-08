@@ -134,7 +134,63 @@ const EmployeePOSTerminal = () => {
   // Local state for inventory
 
   // Inventory data
-  const [inventoryItems, setInventoryItems] = useState([]);
+  const [inventoryItems, setInventoryItems] = useState([
+    {
+      id: 1,
+      name: 'Downy 19 oz',
+      qty: 1,
+      price: 5.50,
+      start: 0,
+      add: 0,
+      sold: 0,
+      left: 0,
+      total: 0
+    },
+    {
+      id: 2,
+      name: 'Gain Sheets 15ct',
+      qty: 1,
+      price: 2.25,
+      start: 0,
+      add: 0,
+      sold: 0,
+      left: 0,
+      total: 0
+    },
+    {
+      id: 3,
+      name: 'Roma 17 63 oz',
+      qty: 1,
+      price: 2.75,
+      start: 0,
+      add: 0,
+      sold: 0,
+      left: 0,
+      total: 0
+    },
+    {
+      id: 4,
+      name: 'Xtra 56 oz',
+      qty: 1,
+      price: 5.50,
+      start: 0,
+      add: 0,
+      sold: 0,
+      left: 0,
+      total: 0
+    },
+    {
+      id: 5,
+      name: 'Clorox 16 oz',
+      qty: 1,
+      price: 2.50,
+      start: 0,
+      add: 0,
+      sold: 0,
+      left: 0,
+      total: 0
+    }
+  ]);
 
   // Current ticket input
   const [tickets, setTickets] = useState([
@@ -301,29 +357,21 @@ const EmployeePOSTerminal = () => {
     try {
       setLoading(true);
       
-      // Define local inventory items with default values
-      const defaultInventory = [
-        { id: 1, name: 'Downy 19 oz', qty: 1, price: 5.50, start: 0, add: 0, sold: 0, left: 0, total: 0 },
-        { id: 2, name: 'Gain Sheets 15ct', qty: 1, price: 2.25, start: 0, add: 0, sold: 0, left: 0, total: 0 },
-        { id: 3, name: 'Roma 17 63 oz', qty: 1, price: 2.75, start: 0, add: 0, sold: 0, left: 0, total: 0 },
-        { id: 4, name: 'Xtra 56 oz', qty: 1, price: 5.50, start: 0, add: 0, sold: 0, left: 0, total: 0 },
-        { id: 5, name: 'Clorox 16 oz', qty: 1, price: 2.50, start: 0, add: 0, sold: 0, left: 0, total: 0 }
-      ];
+      // Following offline-first principle: Only load from localDB
+      const localInventory = await localDB.getAllInventoryItems();
       
-      // Set the inventory items
-      setInventoryItems(defaultInventory);
-      console.log('✅ Loaded default inventory items');
+      if (localInventory?.length > 0) {
+        setInventoryItems(localInventory);
+        console.log('✅ Loaded inventory items from localDB:', localInventory.length);
+      } else {
+        // Start with empty inventory - items will be downloaded when Save Progress is clicked
+        setInventoryItems([]);
+        console.log('💡 No inventory items in localDB. Click Save Progress to download.');
+      }
       
     } catch (error) {
       console.error('Error loading inventory items:', error);
-      // Use fallback inventory on error
-      setInventoryItems([
-        { id: 1, name: 'Downy 19 oz', qty: 1, price: 5.50, start: 0, add: 0, sold: 0, left: 0, total: 0 },
-        { id: 2, name: 'Gain Sheets 15ct', qty: 1, price: 2.25, start: 0, add: 0, sold: 0, left: 0, total: 0 },
-        { id: 3, name: 'Roma 17 63 oz', qty: 1, price: 2.75, start: 0, add: 0, sold: 0, left: 0, total: 0 },
-        { id: 4, name: 'Xtra 56 oz', qty: 1, price: 5.50, start: 0, add: 0, sold: 0, left: 0, total: 0 },
-        { id: 5, name: 'Clorox 16 oz', qty: 1, price: 2.50, start: 0, add: 0, sold: 0, left: 0, total: 0 }
-      ]);
+      setInventoryItems([]);
     } finally {
       setLoading(false);
     }
@@ -1494,18 +1542,36 @@ const EmployeePOSTerminal = () => {
         // First ensure localDB is ready
         await localDB.ready;
 
-          // Process employees sequentially to prevent database issues
-          for (const employee of employees) {
-            try {
-              await localDB.storeEmployeeProfile(employee);
-            } catch (error) {
-              console.error('Failed to store employee:', employee.id);
-              console.error('Error details:', error);
-              // Continue with next employee even if one fails
+        // Store employees in batches to prevent database closing
+        const batchSize = 5;
+        for (let i = 0; i < employees.length; i += batchSize) {
+          const batch = employees.slice(i, i + batchSize);
+          
+          // Process each batch
+          await Promise.all(batch.map(async (employee) => {
+            let retries = 3;
+            while (retries > 0) {
+              try {
+                // Wait for any previous transaction to complete
+                await new Promise(resolve => setTimeout(resolve, 100));
+            await localDB.storeEmployeeProfile(employee);
+                break; // Success, exit retry loop
+              } catch (error) {
+                retries--;
+                if (retries === 0) {
+                  console.error('Failed to store employee after retries:', employee.id);
+                  // Don't throw, just log and continue with other employees
+                  console.error('Error details:', error);
+                }
+                // Wait longer between retries
+                await new Promise(resolve => setTimeout(resolve, 2000));
+              }
             }
-            // Small delay between employees
-            await new Promise(resolve => setTimeout(resolve, 100));
-          }
+          }));
+
+          // Wait between batches
+          await new Promise(resolve => setTimeout(resolve, 500));
+        }
 
         // Update UI with downloaded employees
           setEmployeeList(employees);
@@ -1541,24 +1607,9 @@ const EmployeePOSTerminal = () => {
           }]);
         }
 
-    // Wait a bit before fetching inventory to ensure employees are stored
-    await new Promise(resolve => setTimeout(resolve, 500));
-
-    // Fetch and store master inventory
-    console.log('📦 Fetching master inventory items...');
-    const { data: masterInventory, error: invError } = await supabase.from('master_inventory_items').select('*');
-    
-    if (invError) {
-      console.error('❌ Error fetching master inventory:', invError);
-      return;
-    }
-    
-    if (!masterInventory || masterInventory.length === 0) {
-      console.warn('⚠️ No master inventory items found in Supabase');
-      return;
-    }
-
-    console.log('📦 Found master inventory items:', masterInventory.length);
+        // Fetch and store master inventory
+        const { data: masterInventory, error: invError } = await supabase.from('master_inventory_items').select('*');
+        if (!invError && masterInventory?.length > 0) {
           // Get existing inventory from localDB first
           const existingInventory = await localDB.getAllInventoryItems();
           const existingMap = {};
@@ -1590,11 +1641,14 @@ const EmployeePOSTerminal = () => {
             };
           });
           
-          // Store items in localDB
-          console.log('💾 Storing inventory items:', formattedInventory.length);
+          console.log('Merging master inventory with existing values:', {
+            existing: existingMap,
+            formatted: formattedInventory
+          });
+          
           await localDB.storeInventoryItems(formattedInventory);
           setInventoryItems(formattedInventory);
-          console.log('✅ Successfully stored master inventory:', formattedInventory.length);
+          console.log('✅ Downloaded and stored master inventory:', masterInventory.length);
         }
       }
 
