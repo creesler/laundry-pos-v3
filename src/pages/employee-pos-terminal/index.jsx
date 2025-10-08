@@ -1598,25 +1598,18 @@ const EmployeePOSTerminal = () => {
           }]);
         }
 
-        // Following offline-first principle - only use local inventory
-        const existingInventory = await localDB.getAllInventoryItems();
-        console.log('Following offline-first: using only local inventory');
-        return existingInventory || [];
-
-          // Transform master inventory items while preserving existing values
-          const formattedInventory = masterInventory.map(item => {
-            const existingItem = existingMap[item.item_name.toLowerCase()];
-            return {
-              id: item.id,
-              name: item.item_name,
-              qty: item.quantity || existingItem?.qty || 1,
-              price: Number(item.price || existingItem?.price || 0),
-              start: existingItem?.left || existingItem?.start || 0,
-              add: 0,
-              sold: 0,
-              left: existingItem?.left || existingItem?.start || 0,
-              total: 0,
-              pos_session_id: currentSession?.id // Ensure session ID is set
+        try {
+          // Following offline-first principle - only use local inventory
+          const existingInventory = await localDB.getAllInventoryItems();
+          console.log('Following offline-first: using only local inventory');
+          return existingInventory || [];
+        } catch (error) {
+          console.error('Error loading inventory:', error);
+          return [];
+        }
+      // Following offline-first principle - only use local inventory
+      const inventory = await localDB.getAllInventoryItems();
+      return inventory || [];
             };
           });
           
@@ -2413,6 +2406,7 @@ const EmployeePOSTerminal = () => {
             }
             // Strictly following offline-first - only use local data
             console.log('Following offline-first: using only local inventory structure');
+            return [];
 
             // If we have any inventory structure, use it
             if (inventoryStructure.length > 0) {
