@@ -347,16 +347,15 @@ const EmployeePOSTerminal = () => {
     }
   };
 
-  // Load master inventory items from local data only - strictly following offline-first principle
-  const loadMasterInventoryItems = async () => {
+  // Load inventory items from localDB only - strictly following offline-first principle
+  const loadInventoryItems = async () => {
     try {
       setLoading(true);
       
-      // Get inventory items from localDB only - no fallback to default items
+      // Get inventory items from localDB only
       const localInventory = await localDB.getAllInventoryItems();
       
       // Set inventory items from localDB, empty array if none found
-      // This ensures we only show items that have been explicitly saved
       setInventoryItems(localInventory || []);
       console.log('✅ Loaded inventory items from localDB:', localInventory?.length || 0, 'items');
       
@@ -529,7 +528,7 @@ const EmployeePOSTerminal = () => {
   // Enhanced resetAllFields with improved ticket number generation
   const resetAllFields = async () => {
     // Reset inventory items to default zero values but reload from master items
-    await loadMasterInventoryItems();
+    await loadInventoryItems();
 
     // Enhanced: Generate new sequential tickets with guaranteed database sync
     try {
@@ -1598,49 +1597,8 @@ const EmployeePOSTerminal = () => {
           }]);
         }
 
-        // Fetch and store master inventory
-        const { data: masterInventory, error: invError } = await supabase.from('master_inventory_items').select('*');
-        if (!invError && masterInventory?.length > 0) {
-          // Get existing inventory from localDB first
-          const existingInventory = await localDB.getAllInventoryItems();
-          const existingMap = {};
-          
-          // Create a map of the most recent values for each item
-          existingInventory.forEach(item => {
-            if (item.name) {
-              const key = item.name.toLowerCase();
-              if (!existingMap[key] || new Date(item.created_at || 0) > new Date(existingMap[key].created_at || 0)) {
-                existingMap[key] = item;
-              }
-            }
-          });
-
-          // Transform master inventory items while preserving existing values
-          const formattedInventory = masterInventory.map(item => {
-            const existingItem = existingMap[item.item_name.toLowerCase()];
-            return {
-              id: item.id,
-              name: item.item_name,
-              qty: item.quantity || existingItem?.qty || 1,
-              price: Number(item.price || existingItem?.price || 0),
-              start: existingItem?.left || existingItem?.start || 0,
-              add: 0,
-              sold: 0,
-              left: existingItem?.left || existingItem?.start || 0,
-              total: 0,
-              pos_session_id: currentSession?.id // Ensure session ID is set
-            };
-          });
-          
-          console.log('Merging master inventory with existing values:', {
-            existing: existingMap,
-            formatted: formattedInventory
-          });
-          
-          await localDB.storeInventoryItems(formattedInventory);
-          setInventoryItems(formattedInventory);
-          console.log('✅ Downloaded and stored master inventory:', masterInventory.length);
-        }
+        // Following offline-first principle - no master inventory loading
+        // All inventory items should come from localDB
       }
 
       // Check if we already have a session for this employee and date
@@ -2418,59 +2376,14 @@ const EmployeePOSTerminal = () => {
 
             let inventoryStructure = [];
             
-            // If we have items in localDB, use those
+            // Following offline-first principle - only use local inventory
             if (uniqueItems.length > 0) {
-              inventoryStructure = uniqueItems;
-              console.log('Using inventory structure from localDB:', uniqueItems);
-            }
-            // If online, try to get from Supabase
-            else if (navigator.onLine) {
-              try {
-                const { data: masterInventory } = await supabase.from('master_inventory_items').select('*');
-                if (masterInventory?.length > 0) {
-                  inventoryStructure = masterInventory;
-                  console.log('Using inventory structure from Supabase:', masterInventory);
-                }
-              } catch (error) {
-                console.log('Failed to fetch master inventory (offline mode):', error);
-                // In case of error, fall back to local structure if available
-                if (uniqueItems.length > 0) {
-                  inventoryStructure = uniqueItems;
-                  console.log('Falling back to local inventory structure:', uniqueItems);
-                }
-              }
-            }
-
-            // If we have any inventory structure, use it
-            if (inventoryStructure.length > 0) {
-              const defaultInventory = inventoryStructure.map(item => {
-                const latestItem = latestInventoryMap[item.item_name?.toLowerCase() || item.name?.toLowerCase()];
-                return {
-                  id: item.id,
-                  name: item.item_name || item.name,
-                  qty: item.quantity || latestItem?.qty || 1,
-                  price: Number(item.price || latestItem?.price || 0),
-                  start: latestItem?.left || latestItem?.start || 0,
-                  add: 0,
-                  sold: 0,
-                  left: latestItem?.left || latestItem?.start || 0,
-                  total: 0,
-                  pos_session_id: session.id
-                };
-              });
-              
-              console.log('Initializing inventory with latest values:', {
-                latest: latestInventoryMap,
-                new: defaultInventory
-              });
-              
-              setInventoryItems(defaultInventory);
-              // Store the initialized inventory
-              await localDB.storeInventoryItems(defaultInventory);
+              setInventoryItems(uniqueItems);
+              console.log('Using inventory from localDB:', uniqueItems.length, 'items');
             } else {
               setInventoryItems([]);
+              console.log('No inventory items found in localDB');
             }
-          }
 
           const localTickets = await localDB.getAllTickets();
           const sessionTickets = localTickets.filter(ticket => ticket.pos_session_id === session.id);
