@@ -1494,27 +1494,18 @@ const EmployeePOSTerminal = () => {
         // First ensure localDB is ready
         await localDB.ready;
 
-         // Store employees sequentially to prevent database connection issues
-         for (const employee of employees) {
-           let retries = 3;
-           while (retries > 0) {
-             try {
-               await localDB.storeEmployeeProfile(employee);
-               break; // Success, exit retry loop
-             } catch (error) {
-               retries--;
-               if (retries === 0) {
-                 console.error('Failed to store employee after retries:', employee.id);
-                 console.error('Error details:', error);
-               } else {
-                 // Wait before retry
-                 await new Promise(resolve => setTimeout(resolve, 1000));
-               }
-             }
-           }
-           // Small delay between employees
-           await new Promise(resolve => setTimeout(resolve, 100));
-        }
+          // Process employees sequentially to prevent database issues
+          for (const employee of employees) {
+            try {
+              await localDB.storeEmployeeProfile(employee);
+            } catch (error) {
+              console.error('Failed to store employee:', employee.id);
+              console.error('Error details:', error);
+              // Continue with next employee even if one fails
+            }
+            // Small delay between employees
+            await new Promise(resolve => setTimeout(resolve, 100));
+          }
 
         // Update UI with downloaded employees
           setEmployeeList(employees);
@@ -1551,7 +1542,6 @@ const EmployeePOSTerminal = () => {
         }
 
         // Fetch and store master inventory
-        // Fetch and store master inventory
         const { data: masterInventory, error: invError } = await supabase.from('master_inventory_items').select('*');
         if (invError) {
           console.error('❌ Error fetching master inventory:', invError);
@@ -1559,7 +1549,6 @@ const EmployeePOSTerminal = () => {
           console.warn('⚠️ No master inventory items found in Supabase');
         } else {
           console.log('📦 Found master inventory items:', masterInventory.length);
-          
           // Get existing inventory from localDB first
           const existingInventory = await localDB.getAllInventoryItems();
           const existingMap = {};
@@ -1575,22 +1564,21 @@ const EmployeePOSTerminal = () => {
           });
 
           // Transform master inventory items while preserving existing values
-          const formattedInventory = masterInventory.map(item => ({
-            id: item.id,
-            name: item.item_name,
-            qty: item.quantity || existingMap[item.item_name.toLowerCase()]?.qty || 1,
-            price: Number(item.price || existingMap[item.item_name.toLowerCase()]?.price || 0),
-            start: existingMap[item.item_name.toLowerCase()]?.left || 
-                   existingMap[item.item_name.toLowerCase()]?.start || 0,
-            add: 0,
-            sold: 0,
-            left: existingMap[item.item_name.toLowerCase()]?.left || 
-                  existingMap[item.item_name.toLowerCase()]?.start || 0,
-            total: 0,
-            pos_session_id: currentSession?.id, // Ensure session ID is set
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString()
-          }));
+          const formattedInventory = masterInventory.map(item => {
+            const existingItem = existingMap[item.item_name.toLowerCase()];
+            return {
+              id: item.id,
+              name: item.item_name,
+              qty: item.quantity || existingItem?.qty || 1,
+              price: Number(item.price || existingItem?.price || 0),
+              start: existingItem?.left || existingItem?.start || 0,
+              add: 0,
+              sold: 0,
+              left: existingItem?.left || existingItem?.start || 0,
+              total: 0,
+              pos_session_id: currentSession?.id // Ensure session ID is set
+            };
+          });
           
           // Store items in localDB
           try {
