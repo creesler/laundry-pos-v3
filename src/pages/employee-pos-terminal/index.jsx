@@ -1598,22 +1598,10 @@ const EmployeePOSTerminal = () => {
           }]);
         }
 
-        // Fetch and store master inventory
-        const { data: masterInventory, error: invError } = await supabase.from('master_inventory_items').select('*');
-        if (!invError && masterInventory?.length > 0) {
-          // Get existing inventory from localDB first
-          const existingInventory = await localDB.getAllInventoryItems();
-          const existingMap = {};
-          
-          // Create a map of the most recent values for each item
-          existingInventory.forEach(item => {
-            if (item.name) {
-              const key = item.name.toLowerCase();
-              if (!existingMap[key] || new Date(item.created_at || 0) > new Date(existingMap[key].created_at || 0)) {
-                existingMap[key] = item;
-              }
-            }
-          });
+        // Following offline-first principle - only use local inventory
+        const existingInventory = await localDB.getAllInventoryItems();
+        console.log('Following offline-first: using only local inventory');
+        return existingInventory || [];
 
           // Transform master inventory items while preserving existing values
           const formattedInventory = masterInventory.map(item => {
@@ -2423,23 +2411,8 @@ const EmployeePOSTerminal = () => {
               inventoryStructure = uniqueItems;
               console.log('Using inventory structure from localDB:', uniqueItems);
             }
-            // If online, try to get from Supabase
-            else if (navigator.onLine) {
-              try {
-                const { data: masterInventory } = await supabase.from('master_inventory_items').select('*');
-                if (masterInventory?.length > 0) {
-                  inventoryStructure = masterInventory;
-                  console.log('Using inventory structure from Supabase:', masterInventory);
-                }
-              } catch (error) {
-                console.log('Failed to fetch master inventory (offline mode):', error);
-                // In case of error, fall back to local structure if available
-                if (uniqueItems.length > 0) {
-                  inventoryStructure = uniqueItems;
-                  console.log('Falling back to local inventory structure:', uniqueItems);
-                }
-              }
-            }
+            // Strictly following offline-first - only use local data
+            console.log('Following offline-first: using only local inventory structure');
 
             // If we have any inventory structure, use it
             if (inventoryStructure.length > 0) {
