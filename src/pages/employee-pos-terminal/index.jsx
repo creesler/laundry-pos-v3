@@ -1468,7 +1468,37 @@ const EmployeePOSTerminal = () => {
           }))
         });
         
-        // Fetch and store employees first
+        // Fetch and store master inventory first
+        console.log('📦 Downloading master inventory from server...');
+        const { data: masterInventory, error: invError } = await supabase.from('master_inventory_items').select('*');
+        if (!invError && masterInventory?.length > 0) {
+          console.log('✅ Downloaded master inventory:', masterInventory.length, 'items');
+          
+          // Transform master inventory items
+          const formattedInventory = masterInventory.map(item => ({
+            id: item.id,
+            name: item.item_name,
+            qty: item.quantity || 1,
+            price: Number(item.price || 0),
+            start: 0,
+            add: 0,
+            sold: 0,
+            left: 0,
+            total: 0,
+            pos_session_id: currentSession?.id
+          }));
+          
+          // Store in localDB
+          await localDB.storeInventoryItems(formattedInventory);
+          console.log('✅ Stored master inventory in localDB');
+          
+          // Update state
+          setInventoryItems(formattedInventory);
+        } else if (invError) {
+          console.error('Error downloading master inventory:', invError);
+        }
+
+        // Fetch and store employees
         const { data: employees, error: empError } = await supabase.from('user_profiles').select('*');
         if (empError) {
           console.error('Error fetching employees:', empError);
