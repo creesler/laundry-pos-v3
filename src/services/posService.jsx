@@ -6,33 +6,8 @@ class POSService {
   isSyncing = false;
   pendingSync = [];
   lastSyncTime = null;
-  // Load initial data from local DB only - following offline-first principle
-  async loadInitialData() {
-    try {
-      // Following offline-first principle - only load from localDB
-      const inventory = await localDB.getAllInventoryItems();
-      return { inventory: inventory || [], tickets: [] };
-        } catch (error) {
-          console.warn('Failed to load from server, falling back to local:', error);
-        }
-      }
-      
-      // Fall back to local DB
-      const [inventory, tickets] = await Promise.all([
-        localDB.getAll('inventory'),
-        localDB.getAll('tickets')
-      ]);
-      
-      return { 
-        inventory: inventory.length > 0 ? inventory : [],
-        tickets: tickets.length > 0 ? tickets : []
-      };
-      
-    } catch (error) {
-      console.error('Error loading initial data:', error);
-      return { inventory: [], tickets: [] };
-    }
-  }
+  // Removed loadInitialData to strictly follow offline-first principle
+  // All data loading should happen through localDB directly
 
   // Generate ticket numbers using local DB
   async generateTicketNumbers(count = 3) {
@@ -86,54 +61,8 @@ class POSService {
   }
   }
 
-  // Load initial data from server or local DB
-  async loadInitialData() {
-    try {
-      // Try to load from server first if online
-      let inventory = [];
-      let tickets = [];
-      
-      if (navigator.onLine) {
-        const [serverInventory, serverTickets] = await Promise.all([
-          supabase.from('pos_inventory_items').select('*'),
-          supabase.from('pos_wash_dry_tickets')
-            .select('*')
-            .order('created_at', { ascending: false })
-            .limit(3)
-        ]);
-
-        // Store in local DB
-        if (serverInventory.data) {
-          await localDB.setAll('inventory', 
-            serverInventory.data.map(item => ({ 
-              ...item, 
-              isSynced: true 
-            }))
-          );
-          inventory = serverInventory.data;
-        }
-
-        if (serverTickets.data) {
-          await localDB.setAll('tickets', 
-            serverTickets.data.map(ticket => ({
-              ...ticket,
-              isSynced: true
-            }))
-          );
-          tickets = serverTickets.data;
-        }
-      }
-
-      // Load from local DB (will use cached data if online fetch failed)
-      if (inventory.length === 0) {
-        inventory = await localDB.getAll('inventory');
-      }
-      if (tickets.length === 0) {
-        tickets = await localDB.getAll('tickets');
-      }
-
-      return {
-        inventory,
+  // Removed loadInitialData to strictly follow offline-first principle
+  // All data loading should happen through localDB directly
   async syncWithServer() {
     try {
       if (!navigator.onLine) {
