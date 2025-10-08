@@ -1124,8 +1124,8 @@ const EmployeePOSTerminal = () => {
   const handleDecimalInput = () => {
     if (!activeInput) return;
     
-    // Only allow decimal for wash/dry fields
-    if (activeInput !== 'wash' && activeInput !== 'dry') return;
+    // Allow decimal for wash/dry and cash fields
+    if (activeInput !== 'wash' && activeInput !== 'dry' && activeInput.section !== 'cash') return;
     
     // Prevent multiple decimal points
     if (currentInputValue?.includes('.')) return;
