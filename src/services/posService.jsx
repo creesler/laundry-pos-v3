@@ -6,23 +6,12 @@ class POSService {
   isSyncing = false;
   pendingSync = [];
   lastSyncTime = null;
-  // Load initial data from server or local DB
+  // Load initial data from local DB only - following offline-first principle
   async loadInitialData() {
     try {
-      // First try to load from server if online
-      if (navigator.onLine) {
-        try {
-          // Load inventory from server
-          const { data: inventory, error: invError } = await supabase
-            .from('pos_inventory_items')
-            .select('*')
-            .order('id', { ascending: true });
-          
-          if (!invError && inventory) {
-            // Save to local DB
-            await localDB.setAll('inventory', inventory);
-            return { inventory, tickets: [] };
-          }
+      // Following offline-first principle - only load from localDB
+      const inventory = await localDB.getAllInventoryItems();
+      return { inventory: inventory || [], tickets: [] };
         } catch (error) {
           console.warn('Failed to load from server, falling back to local:', error);
         }
