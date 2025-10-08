@@ -726,7 +726,8 @@ const EmployeePOSTerminal = () => {
 
       // Load tickets for current session
       const allStoredTickets = await localDB.getAllTickets();
-      const currentSessionId = existingSession?.id || newSession?.id;
+      const currentSessionData = await localDB.getSessionByEmployeeAndDate(selectedEmployee, getTodayDate());
+      const currentSessionId = currentSessionData?.id || currentSession?.id;
       
       // Filter tickets for current session
       const sessionTickets = allStoredTickets.filter(ticket => 
