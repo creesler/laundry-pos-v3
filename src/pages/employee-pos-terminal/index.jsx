@@ -134,8 +134,63 @@ const EmployeePOSTerminal = () => {
   // Local state for inventory
 
   // Inventory data
-  // Start with empty inventory - following offline-first principle
-  const [inventoryItems, setInventoryItems] = useState([]);
+  const [inventoryItems, setInventoryItems] = useState([
+    {
+      id: 1,
+      name: 'Downy 19 oz',
+      qty: 1,
+      price: 5.50,
+      start: 0,
+      add: 0,
+      sold: 0,
+      left: 0,
+      total: 0
+    },
+    {
+      id: 2,
+      name: 'Gain Sheets 15ct',
+      qty: 1,
+      price: 2.25,
+      start: 0,
+      add: 0,
+      sold: 0,
+      left: 0,
+      total: 0
+    },
+    {
+      id: 3,
+      name: 'Roma 17 63 oz',
+      qty: 1,
+      price: 2.75,
+      start: 0,
+      add: 0,
+      sold: 0,
+      left: 0,
+      total: 0
+    },
+    {
+      id: 4,
+      name: 'Xtra 56 oz',
+      qty: 1,
+      price: 5.50,
+      start: 0,
+      add: 0,
+      sold: 0,
+      left: 0,
+      total: 0
+    },
+    {
+      id: 5,
+      name: 'Clorox 16 oz',
+      qty: 1,
+      price: 2.50,
+      start: 0,
+      add: 0,
+      sold: 0,
+      left: 0,
+      total: 0
+    }
+  ]);
 
   // Current ticket input
   const [tickets, setTickets] = useState([
@@ -297,26 +352,28 @@ const EmployeePOSTerminal = () => {
     }
   };
 
-  // Load master inventory items from local data
+  // Load master inventory items from local data only - following offline-first principle
   const loadMasterInventoryItems = async () => {
     try {
       setLoading(true);
       
-      // Following offline-first principle: Only load from localDB
+      // Get inventory items from localDB only
       const localInventory = await localDB.getAllInventoryItems();
       
-      if (localInventory?.length > 0) {
-        setInventoryItems(localInventory);
-        console.log('✅ Loaded inventory items from localDB:', localInventory.length);
-      } else {
-        // Start with empty inventory - items will be downloaded when Save Progress is clicked
-        setInventoryItems([]);
-        console.log('💡 No inventory items in localDB. Click Save Progress to download.');
-      }
+      // Set inventory items from localDB, empty array if none found
+      setInventoryItems(localInventory || []);
+      console.log('✅ Loaded inventory items from localDB:', localInventory?.length || 0, 'items');
       
     } catch (error) {
       console.error('Error loading inventory items:', error);
-      setInventoryItems([]);
+      // Use fallback inventory on error
+      setInventoryItems([
+        { id: 1, name: 'Downy 19 oz', qty: 1, price: 5.50, start: 0, add: 0, sold: 0, left: 0, total: 0 },
+        { id: 2, name: 'Gain Sheets 15ct', qty: 1, price: 2.25, start: 0, add: 0, sold: 0, left: 0, total: 0 },
+        { id: 3, name: 'Roma 17 63 oz', qty: 1, price: 2.75, start: 0, add: 0, sold: 0, left: 0, total: 0 },
+        { id: 4, name: 'Xtra 56 oz', qty: 1, price: 5.50, start: 0, add: 0, sold: 0, left: 0, total: 0 },
+        { id: 5, name: 'Clorox 16 oz', qty: 1, price: 2.50, start: 0, add: 0, sold: 0, left: 0, total: 0 }
+      ]);
     } finally {
       setLoading(false);
     }
@@ -1553,13 +1610,7 @@ const EmployeePOSTerminal = () => {
         }
 
         // Fetch and store master inventory
-        console.log('🔄 Downloading master inventory items...');
         const { data: masterInventory, error: invError } = await supabase.from('master_inventory_items').select('*');
-        if (invError) {
-          console.error('❌ Error downloading master inventory:', invError);
-        } else {
-          console.log('✅ Found master inventory items:', masterInventory?.length);
-        }
         if (!invError && masterInventory?.length > 0) {
           // Get existing inventory from localDB first
           const existingInventory = await localDB.getAllInventoryItems();
@@ -2341,21 +2392,12 @@ const EmployeePOSTerminal = () => {
       setAllStoredTickets(allStoredTickets);
       console.log('Loaded all tickets for history:', allStoredTickets);
 
-      // Following offline-first: Only load inventory if explicitly saved in localDB
+      // Load inventory and tickets for this session
       const localInventory = await localDB.getAllInventoryItems();
-      if (localInventory?.length > 0) {
-        const sessionInventory = localInventory.filter(item => item.pos_session_id === session.id);
-        if (sessionInventory.length > 0) {
-          setInventoryItems(sessionInventory);
-          console.log('✅ Loaded inventory from localDB for session:', sessionInventory.length, 'items');
-        } else {
-          setInventoryItems([]);
-          console.log('💡 No inventory found for this session in localDB');
-        }
+      const sessionInventory = localInventory.filter(item => item.pos_session_id === session.id);
+      if (sessionInventory.length > 0) {
+        setInventoryItems(sessionInventory);
       } else {
-        setInventoryItems([]);
-        console.log('💡 No inventory in localDB. Click Save Progress to download master items.');
-      }
               // If no session inventory, get the latest inventory state from localDB
             const allInventory = await localDB.getAllInventoryItems();
             console.log('Retrieved all inventory for initialization:', allInventory);
@@ -2481,13 +2523,13 @@ const EmployeePOSTerminal = () => {
           setCashData({ started: 0, added: 0, coinsUsed: 0, total: 0 });
           setNotes('');
           setInventoryItems([]);
-          const defaultTickets = [
+            const defaultTickets = [
             { id: crypto.randomUUID(), ticketNumber: '', wash: 0, dry: 0, total: 0, pos_session_id: newSession.id },
             { id: crypto.randomUUID(), ticketNumber: '', wash: 0, dry: 0, total: 0, pos_session_id: newSession.id },
             { id: crypto.randomUUID(), ticketNumber: '', wash: 0, dry: 0, total: 0, pos_session_id: newSession.id }
           ];
           await localDB.storeTickets(defaultTickets);
-          setTickets(defaultTickets);
+            setTickets(defaultTickets);
         }
       }
     };
@@ -2496,7 +2538,7 @@ const EmployeePOSTerminal = () => {
     return () => {
       isMounted = false;
     };
-  }, [selectedEmployee, currentSession]); // Re-run when selected employee or session changes
+  }, [selectedEmployee]); // Re-run when selected employee changes
 
   // Helper: Merge master inventory with local/latest inventory
   const mergeMasterWithLocalInventory = async () => {
