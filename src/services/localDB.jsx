@@ -75,10 +75,15 @@ class LocalDB {
     return new Promise((resolve, reject) => {
       const transaction = this.db.transaction(['employeeProfiles'], 'readwrite');
       const store = transaction.objectStore('employeeProfiles');
-      const request = store.put(employee);
       
-      request.onerror = () => reject(request.error);
-      request.onsuccess = () => resolve(request.result);
+      transaction.onerror = () => reject(transaction.error);
+      transaction.oncomplete = () => resolve();
+      
+      try {
+        store.put(employee);
+      } catch (error) {
+        reject(error);
+      }
     });
   }
 

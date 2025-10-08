@@ -1494,27 +1494,26 @@ const EmployeePOSTerminal = () => {
         // First ensure localDB is ready
         await localDB.ready;
 
-        // Store employees sequentially to prevent database connection issues
-        for (const employee of employees) {
-          let retries = 3;
-          while (retries > 0) {
-            try {
-              await localDB.ready; // Ensure DB is ready before each operation
-              await localDB.storeEmployeeProfile(employee);
-              break; // Success, exit retry loop
-            } catch (error) {
-              retries--;
-              if (retries === 0) {
-                console.error('Failed to store employee after retries:', employee.id);
-                console.error('Error details:', error);
-              } else {
-                // Wait before retry
-                await new Promise(resolve => setTimeout(resolve, 1000));
-              }
-            }
-          }
-          // Small delay between employees
-          await new Promise(resolve => setTimeout(resolve, 100));
+         // Store employees sequentially to prevent database connection issues
+         for (const employee of employees) {
+           let retries = 3;
+           while (retries > 0) {
+             try {
+               await localDB.storeEmployeeProfile(employee);
+               break; // Success, exit retry loop
+             } catch (error) {
+               retries--;
+               if (retries === 0) {
+                 console.error('Failed to store employee after retries:', employee.id);
+                 console.error('Error details:', error);
+               } else {
+                 // Wait before retry
+                 await new Promise(resolve => setTimeout(resolve, 1000));
+               }
+             }
+           }
+           // Small delay between employees
+           await new Promise(resolve => setTimeout(resolve, 100));
         }
 
         // Update UI with downloaded employees
