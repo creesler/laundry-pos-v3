@@ -1551,8 +1551,15 @@ const EmployeePOSTerminal = () => {
         }
 
         // Fetch and store master inventory
+        // Fetch and store master inventory
         const { data: masterInventory, error: invError } = await supabase.from('master_inventory_items').select('*');
-        if (!invError && masterInventory?.length > 0) {
+        if (invError) {
+          console.error('❌ Error fetching master inventory:', invError);
+        } else if (!masterInventory?.length) {
+          console.warn('⚠️ No master inventory items found in Supabase');
+        } else {
+          console.log('📦 Found master inventory items:', masterInventory.length);
+          
           // Get existing inventory from localDB first
           const existingInventory = await localDB.getAllInventoryItems();
           const existingMap = {};
@@ -1568,30 +1575,32 @@ const EmployeePOSTerminal = () => {
           });
 
           // Transform master inventory items while preserving existing values
-          const formattedInventory = masterInventory.map(item => {
-            const existingItem = existingMap[item.item_name.toLowerCase()];
-            return {
-              id: item.id,
-              name: item.item_name,
-              qty: item.quantity || existingItem?.qty || 1,
-              price: Number(item.price || existingItem?.price || 0),
-              start: existingItem?.left || existingItem?.start || 0,
-              add: 0,
-              sold: 0,
-              left: existingItem?.left || existingItem?.start || 0,
-              total: 0,
-              pos_session_id: currentSession?.id // Ensure session ID is set
-            };
-          });
+          const formattedInventory = masterInventory.map(item => ({
+            id: item.id,
+            name: item.item_name,
+            qty: item.quantity || existingMap[item.item_name.toLowerCase()]?.qty || 1,
+            price: Number(item.price || existingMap[item.item_name.toLowerCase()]?.price || 0),
+            start: existingMap[item.item_name.toLowerCase()]?.left || 
+                   existingMap[item.item_name.toLowerCase()]?.start || 0,
+            add: 0,
+            sold: 0,
+            left: existingMap[item.item_name.toLowerCase()]?.left || 
+                  existingMap[item.item_name.toLowerCase()]?.start || 0,
+            total: 0,
+            pos_session_id: currentSession?.id, // Ensure session ID is set
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          }));
           
-          console.log('Merging master inventory with existing values:', {
-            existing: existingMap,
-            formatted: formattedInventory
-          });
-          
-          await localDB.storeInventoryItems(formattedInventory);
-          setInventoryItems(formattedInventory);
-          console.log('✅ Downloaded and stored master inventory:', masterInventory.length);
+          // Store items in localDB
+          try {
+            console.log('💾 Storing inventory items in localDB:', formattedInventory.length);
+            await localDB.storeInventoryItems(formattedInventory);
+            setInventoryItems(formattedInventory);
+            console.log('✅ Successfully stored master inventory:', formattedInventory.length);
+          } catch (error) {
+            console.error('❌ Error storing inventory items:', error);
+          }
         }
       }
 
