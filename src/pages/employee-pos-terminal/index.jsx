@@ -1545,10 +1545,8 @@ const EmployeePOSTerminal = () => {
         const { data: masterInventory, error: invError } = await supabase.from('master_inventory_items').select('*');
         if (invError) {
           console.error('❌ Error fetching master inventory:', invError);
-        } else if (!masterInventory?.length) {
-          console.warn('⚠️ No master inventory items found in Supabase');
         } else {
-          console.log('📦 Found master inventory items:', masterInventory.length);
+          console.log('📦 Found master inventory items:', masterInventory?.length || 0);
           // Get existing inventory from localDB first
           const existingInventory = await localDB.getAllInventoryItems();
           const existingMap = {};
@@ -1581,14 +1579,9 @@ const EmployeePOSTerminal = () => {
           });
           
           // Store items in localDB
-          try {
-            console.log('💾 Storing inventory items in localDB:', formattedInventory.length);
-            await localDB.storeInventoryItems(formattedInventory);
-            setInventoryItems(formattedInventory);
-            console.log('✅ Successfully stored master inventory:', formattedInventory.length);
-          } catch (error) {
-            console.error('❌ Error storing inventory items:', error);
-          }
+          await localDB.storeInventoryItems(formattedInventory);
+          setInventoryItems(formattedInventory);
+          console.log('✅ Downloaded and stored master inventory:', masterInventory.length);
         }
       }
 
