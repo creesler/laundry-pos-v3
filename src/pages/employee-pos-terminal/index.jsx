@@ -154,11 +154,11 @@ const EmployeePOSTerminal = () => {
 
   const [notes, setNotes] = useState('');
 
-  // Handle ticket field changes
+  // Handle ticket field changes - restored original working code
   const handleFieldChange = (field, value, id) => {
     setTickets(prev => prev.map(ticket => {
       if (ticket.id === id) {
-        let updatedTicket = { ...ticket };
+        const updatedTicket = { ...ticket };
         
         if (field === 'wash' || field === 'dry') {
           // Convert to number, default to previous value if invalid
@@ -168,11 +168,20 @@ const EmployeePOSTerminal = () => {
           // Calculate total
           const wash = field === 'wash' ? numValue : (ticket.wash || 0);
           const dry = field === 'dry' ? numValue : (ticket.dry || 0);
-          updatedTicket.total = Math.round((wash + dry) * 100) / 100; // Round to 2 decimal places
+          updatedTicket.total = wash + dry;
         } else {
           // For non-numeric fields (like ticketNumber)
           updatedTicket[field] = value;
         }
+        
+        // Update totals
+        const washDrySubtotal = prev.reduce((sum, t) => sum + (t.total || 0), 0);
+        const inventorySalesTotal = inventoryItems.reduce((sum, item) => sum + (item.total || 0), 0);
+        setTotals({
+          washDrySubtotal,
+          inventorySalesTotal,
+          grandTotal: washDrySubtotal + inventorySalesTotal
+        });
         
         return updatedTicket;
       }
