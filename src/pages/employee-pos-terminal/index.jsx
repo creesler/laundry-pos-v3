@@ -347,15 +347,16 @@ const EmployeePOSTerminal = () => {
     }
   };
 
-  // Load master inventory items from local data only - following offline-first principle
+  // Load master inventory items from local data only - strictly following offline-first principle
   const loadMasterInventoryItems = async () => {
     try {
       setLoading(true);
       
-      // Get inventory items from localDB only
+      // Get inventory items from localDB only - no fallback to default items
       const localInventory = await localDB.getAllInventoryItems();
       
       // Set inventory items from localDB, empty array if none found
+      // This ensures we only show items that have been explicitly saved
       setInventoryItems(localInventory || []);
       console.log('✅ Loaded inventory items from localDB:', localInventory?.length || 0, 'items');
       
