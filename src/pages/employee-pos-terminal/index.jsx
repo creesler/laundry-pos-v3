@@ -2341,12 +2341,21 @@ const EmployeePOSTerminal = () => {
       setAllStoredTickets(allStoredTickets);
       console.log('Loaded all tickets for history:', allStoredTickets);
 
-      // Load inventory and tickets for this session
+      // Following offline-first: Only load inventory if explicitly saved in localDB
       const localInventory = await localDB.getAllInventoryItems();
-      const sessionInventory = localInventory.filter(item => item.pos_session_id === session.id);
-      if (sessionInventory.length > 0) {
-        setInventoryItems(sessionInventory);
+      if (localInventory?.length > 0) {
+        const sessionInventory = localInventory.filter(item => item.pos_session_id === session.id);
+        if (sessionInventory.length > 0) {
+          setInventoryItems(sessionInventory);
+          console.log('✅ Loaded inventory from localDB for session:', sessionInventory.length, 'items');
+        } else {
+          setInventoryItems([]);
+          console.log('💡 No inventory found for this session in localDB');
+        }
       } else {
+        setInventoryItems([]);
+        console.log('💡 No inventory in localDB. Click Save Progress to download master items.');
+      }
               // If no session inventory, get the latest inventory state from localDB
             const allInventory = await localDB.getAllInventoryItems();
             console.log('Retrieved all inventory for initialization:', allInventory);
