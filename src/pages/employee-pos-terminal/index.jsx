@@ -1545,11 +1545,20 @@ const EmployeePOSTerminal = () => {
     await new Promise(resolve => setTimeout(resolve, 500));
 
     // Fetch and store master inventory
+    console.log('📦 Fetching master inventory items...');
     const { data: masterInventory, error: invError } = await supabase.from('master_inventory_items').select('*');
+    
     if (invError) {
       console.error('❌ Error fetching master inventory:', invError);
-    } else {
-      console.log('📦 Found master inventory items:', masterInventory?.length || 0);
+      return;
+    }
+    
+    if (!masterInventory || masterInventory.length === 0) {
+      console.warn('⚠️ No master inventory items found in Supabase');
+      return;
+    }
+
+    console.log('📦 Found master inventory items:', masterInventory.length);
           // Get existing inventory from localDB first
           const existingInventory = await localDB.getAllInventoryItems();
           const existingMap = {};
@@ -1582,9 +1591,10 @@ const EmployeePOSTerminal = () => {
           });
           
           // Store items in localDB
+          console.log('💾 Storing inventory items:', formattedInventory.length);
           await localDB.storeInventoryItems(formattedInventory);
           setInventoryItems(formattedInventory);
-          console.log('✅ Downloaded and stored master inventory:', masterInventory.length);
+          console.log('✅ Successfully stored master inventory:', formattedInventory.length);
         }
       }
 
