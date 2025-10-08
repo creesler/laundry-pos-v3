@@ -126,66 +126,8 @@ const EmployeePOSTerminal = () => {
     setShowClockOutPrompt(false);
   }
   
-  // Local state for inventory
-
-  // Inventory data
-  const [inventoryItems, setInventoryItems] = useState([
-    {
-      id: 1,
-      name: 'Downy 19 oz',
-      qty: 1,
-      price: 5.50,
-      start: 0,
-      add: 0,
-      sold: 0,
-      left: 0,
-      total: 0
-    },
-    {
-      id: 2,
-      name: 'Gain Sheets 15ct',
-      qty: 1,
-      price: 2.25,
-      start: 0,
-      add: 0,
-      sold: 0,
-      left: 0,
-      total: 0
-    },
-    {
-      id: 3,
-      name: 'Roma 17 63 oz',
-      qty: 1,
-      price: 2.75,
-      start: 0,
-      add: 0,
-      sold: 0,
-      left: 0,
-      total: 0
-    },
-    {
-      id: 4,
-      name: 'Xtra 56 oz',
-      qty: 1,
-      price: 5.50,
-      start: 0,
-      add: 0,
-      sold: 0,
-      left: 0,
-      total: 0
-    },
-    {
-      id: 5,
-      name: 'Clorox 16 oz',
-      qty: 1,
-      price: 2.50,
-      start: 0,
-      add: 0,
-      sold: 0,
-      left: 0,
-      total: 0
-    }
-  ]);
+  // Local state for inventory - following offline-first principle
+  const [inventoryItems, setInventoryItems] = useState([]);
 
   // Current ticket input
   const [tickets, setTickets] = useState([
@@ -370,14 +312,8 @@ const EmployeePOSTerminal = () => {
       
     } catch (error) {
       console.error('Error loading inventory items:', error);
-      // Use fallback inventory on error
-      setInventoryItems([
-        { id: 1, name: 'Downy 19 oz', qty: 1, price: 5.50, start: 0, add: 0, sold: 0, left: 0, total: 0 },
-        { id: 2, name: 'Gain Sheets 15ct', qty: 1, price: 2.25, start: 0, add: 0, sold: 0, left: 0, total: 0 },
-        { id: 3, name: 'Roma 17 63 oz', qty: 1, price: 2.75, start: 0, add: 0, sold: 0, left: 0, total: 0 },
-        { id: 4, name: 'Xtra 56 oz', qty: 1, price: 5.50, start: 0, add: 0, sold: 0, left: 0, total: 0 },
-        { id: 5, name: 'Clorox 16 oz', qty: 1, price: 2.50, start: 0, add: 0, sold: 0, left: 0, total: 0 }
-      ]);
+      // Following offline-first principle - no default items on error
+      setInventoryItems([]);
     } finally {
       setLoading(false);
     }
