@@ -350,14 +350,23 @@ const EmployeePOSTerminal = () => {
   // Load inventory items from localDB only - strictly following offline-first principle
   const loadInventoryItems = async () => {
     try {
+      console.log('🔍 Starting inventory load from localDB...');
       setLoading(true);
       
       // Get inventory items from localDB only
       const localInventory = await localDB.getAllInventoryItems();
+      console.log('📦 Raw inventory from localDB:', localInventory);
       
       // Set inventory items from localDB, empty array if none found
       setInventoryItems(localInventory || []);
-      console.log('✅ Loaded inventory items from localDB:', localInventory?.length || 0, 'items');
+      console.log('✅ Loaded inventory items from localDB:', {
+        count: localInventory?.length || 0,
+        items: localInventory?.map(item => ({
+          name: item.name,
+          id: item.id,
+          session_id: item.pos_session_id
+        }))
+      });
       
     } catch (error) {
       console.error('Error loading inventory items:', error);
@@ -1514,7 +1523,14 @@ const EmployeePOSTerminal = () => {
       
       // Step 1: Always try to download and store initial data when Save Progress is clicked
       if (navigator.onLine) {
-        console.log('🔄 Downloading latest data from server...');
+        console.log('🔄 Starting data download from server...');
+        console.log('📊 Current inventory state:', {
+          items: inventoryItems?.map(item => ({
+            name: item.name,
+            id: item.id,
+            session_id: item.pos_session_id
+          }))
+        });
         
         // Fetch and store employees first
         const { data: employees, error: empError } = await supabase.from('user_profiles').select('*');
@@ -2400,8 +2416,9 @@ const EmployeePOSTerminal = () => {
             // Store the default tickets
             await localDB.storeTickets(defaultTickets);
           }
-        } else {
-          // No session found, create a new one
+        }
+        
+        // If no session exists, create a new one
           const newSession = {
             id: crypto.randomUUID(),
             created_at: new Date().toISOString(),

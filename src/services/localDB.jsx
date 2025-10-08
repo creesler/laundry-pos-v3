@@ -183,16 +183,19 @@ class LocalDB {
   }
 
   async getAllInventoryItems() {
+    console.log('🔍 getAllInventoryItems called');
     await this.ready;
     const transaction = this.db.transaction(['posInventoryItems', 'latestInventory'], 'readonly');
     const store = transaction.objectStore('posInventoryItems');
     const latestStore = transaction.objectStore('latestInventory');
     
     try {
+      console.log('📦 Fetching items from localDB stores...');
       const [items, latestItems] = await Promise.all([
         requestToPromise(store.getAll()),
         requestToPromise(latestStore.getAll())
       ]);
+      console.log('📊 Raw items from stores:', { items, latestItems });
       
       // Create a map of latest state by item name
       const latestState = {};
