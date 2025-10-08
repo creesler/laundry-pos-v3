@@ -1494,35 +1494,27 @@ const EmployeePOSTerminal = () => {
         // First ensure localDB is ready
         await localDB.ready;
 
-        // Store employees in batches to prevent database closing
-        const batchSize = 5;
-        for (let i = 0; i < employees.length; i += batchSize) {
-          const batch = employees.slice(i, i + batchSize);
-          
-          // Process each batch
-          await Promise.all(batch.map(async (employee) => {
-            let retries = 3;
-            while (retries > 0) {
-              try {
-                // Wait for any previous transaction to complete
-                await new Promise(resolve => setTimeout(resolve, 100));
-            await localDB.storeEmployeeProfile(employee);
-                break; // Success, exit retry loop
-              } catch (error) {
-                retries--;
-                if (retries === 0) {
-                  console.error('Failed to store employee after retries:', employee.id);
-                  // Don't throw, just log and continue with other employees
-                  console.error('Error details:', error);
-                }
-                // Wait longer between retries
-                await new Promise(resolve => setTimeout(resolve, 2000));
+        // Store employees sequentially to prevent database connection issues
+        for (const employee of employees) {
+          let retries = 3;
+          while (retries > 0) {
+            try {
+              await localDB.ready; // Ensure DB is ready before each operation
+              await localDB.storeEmployeeProfile(employee);
+              break; // Success, exit retry loop
+            } catch (error) {
+              retries--;
+              if (retries === 0) {
+                console.error('Failed to store employee after retries:', employee.id);
+                console.error('Error details:', error);
+              } else {
+                // Wait before retry
+                await new Promise(resolve => setTimeout(resolve, 1000));
               }
             }
-          }));
-
-          // Wait between batches
-          await new Promise(resolve => setTimeout(resolve, 500));
+          }
+          // Small delay between employees
+          await new Promise(resolve => setTimeout(resolve, 100));
         }
 
         // Update UI with downloaded employees
