@@ -2,14 +2,17 @@ import React from 'react';
 
 const EmployeeSelect = ({ employees, selectedEmployeeId, onChange }) => {
   if (!employees || employees.length === 0) {
-    return <div className="text-red-500">No employees loaded. Please sync or check connection.</div>;
+    return (
+      <div className="text-amber-600 bg-amber-50 p-3 rounded-lg flex items-center">
+        <div className="flex-1">No employees loaded. Click "Save Progress" to download employee data.</div>
+      </div>
+    );
   }
   return (
     <select
       className="border rounded px-2 py-1"
       value={selectedEmployeeId || ''}
       onChange={e => {
-        console.log('Employee selected (id):', e.target.value);
         onChange(e.target.value);
       }}
     >

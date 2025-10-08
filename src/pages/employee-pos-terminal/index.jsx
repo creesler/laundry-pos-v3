@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import Header from '../../components/ui/Header';
 import Icon from '../../components/AppIcon';
-import InventoryGrid from './components/InventoryGrid';
-import WashDryTickets from './components/WashDryTickets';
+import InventoryGrid from './components/InventoryGrid.jsx';
+import TicketHistory from './components/TicketHistory';
+import TicketInput from './components/TicketInput';
 import CashSection from './components/CashSection';
 import TotalsSection from './components/TotalsSection';
 import NotesSection from './components/NotesSection';
@@ -13,7 +14,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { timesheetService } from '../../services/timesheetService';
 import { posService } from '../../services/posService';
 import { supabase } from '../../lib/supabase';
-import { localDB } from '../../services/localDB';
+import { localDB } from '../../services/localDB.jsx';
 import { employeeService } from '../../services/employeeService';
 import Modal from '../../components/ui/Modal';
 
@@ -78,14 +79,23 @@ const EmployeePOSTerminal = () => {
     const checkActiveClockIn = async () => {
       try {
         setIsCheckingClockIn(true);
-        const employeeId = user?.id;
-        if (employeeId) {
-          const clockIn = await timesheetService.getActiveClockIn(employeeId);
-          if (clockIn) {
-            setActiveClockIn(clockIn);
+        
+        // Check localStorage for active timesheet
+        const activeTimesheetStr = localStorage.getItem('active_timesheet');
+        if (activeTimesheetStr) {
+          const activeTimesheet = JSON.parse(activeTimesheetStr);
+          
+          // If there's no clock_out_time, the employee is still clocked in
+          if (!activeTimesheet.clock_out_time) {
+            setActiveClockIn(activeTimesheet);
             setClockStatus('clocked-in');
-            setClockTime(clockIn.clock_in_time);
+            setClockTime(new Date(activeTimesheet.clock_in_time));
             setShowClockOutPrompt(true);
+            
+            // Also restore the selected employee
+            if (activeTimesheet.employee_id) {
+              setSelectedEmployee(activeTimesheet.employee_id);
+            }
           }
         }
       } catch (error) {
@@ -95,13 +105,7 @@ const EmployeePOSTerminal = () => {
       }
     };
 
-    // Run database connection test and check for active clock-in
-    const initialize = async () => {
-      await testDatabaseConnection();
-      await checkActiveClockIn();
-    };
-
-    initialize();
+    checkActiveClockIn();
 
     // Set up beforeunload event to handle page refresh/close
     const handleBeforeUnload = (e) => {
@@ -188,12 +192,13 @@ const EmployeePOSTerminal = () => {
     }
   ]);
 
-  // Wash & Dry tickets data - will be updated with persistent sequencing
+  // Current ticket input
   const [tickets, setTickets] = useState([
-    { id: 1, ticketNumber: '015', wash: 0, dry: 0, total: 0 },
-    { id: 2, ticketNumber: '016', wash: 0, dry: 0, total: 0 },
-    { id: 3, ticketNumber: '017', wash: 0, dry: 0, total: 0 }
+    { id: crypto.randomUUID(), ticketNumber: '', wash: 0, dry: 0, total: 0 }
   ]);
+
+  // All stored tickets for history
+  const [allStoredTickets, setAllStoredTickets] = useState([]);
 
   // Cash section data
   const [cashData, setCashData] = useState({
@@ -212,6 +217,103 @@ const EmployeePOSTerminal = () => {
 
   const [notes, setNotes] = useState('');
 
+  // Handle ticket field changes
+  const handleFieldChange = (field, value, id) => {
+    setTickets(prev => prev.map(ticket => {
+      if (ticket.id === id) {
+        let updatedTicket = { ...ticket };
+        
+        if (field === 'wash' || field === 'dry') {
+          // Convert to number, default to previous value if invalid
+          const numValue = !isNaN(parseFloat(value)) ? parseFloat(value) : (ticket[field] || 0);
+          updatedTicket[field] = numValue;
+          
+          // Calculate total
+          const wash = field === 'wash' ? numValue : (ticket.wash || 0);
+          const dry = field === 'dry' ? numValue : (ticket.dry || 0);
+          updatedTicket.total = Math.round((wash + dry) * 100) / 100; // Round to 2 decimal places
+        } else {
+          // For non-numeric fields (like ticketNumber)
+          updatedTicket[field] = value;
+        }
+        
+        return updatedTicket;
+      }
+      return ticket;
+    }));
+  };
+
+  // Handle inserting a new ticket
+  const handleInsertTicket = async () => {
+    try {
+      setLoading(true);
+
+      // Validate current ticket
+      const currentTicket = tickets[0];
+      if (!currentTicket || !currentTicket.ticketNumber || !(currentTicket.wash > 0 || currentTicket.dry > 0)) {
+        alert('Please enter ticket number and wash or dry amount');
+        return;
+      }
+
+      // Check if ticket number already exists
+      const existingTickets = await localDB.getAllTickets();
+      const ticketExists = existingTickets.some(t => t.ticketNumber === currentTicket.ticketNumber);
+      if (ticketExists) {
+        alert('Ticket number already exists. Please use a different number.');
+        return;
+      }
+
+      // Create new ticket with current session
+      const newTicket = {
+        ...currentTicket,
+        id: crypto.randomUUID(),
+        pos_session_id: currentSession?.id,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      };
+
+      // Save to localDB
+      await localDB.storeTickets([newTicket]);
+
+      // Load all tickets again to ensure we have the latest
+      const allTickets = await localDB.getAllTickets();
+      const validTickets = allTickets.filter(ticket => 
+        ticket.id !== 'message' &&
+        ticket.pos_session_id === currentSession?.id && // Only show tickets for current session
+        (ticket.ticketNumber || ticket.ticket_number) &&
+        ((ticket.wash > 0 || ticket.dry > 0) ||
+         (ticket.wash_amount > 0 || ticket.dry_amount > 0))
+      ).sort((a, b) => {
+        const dateA = new Date(a.created_at || 0);
+        const dateB = new Date(b.created_at || 0);
+        return dateB - dateA; // Most recent first
+      });
+      setAllStoredTickets(validTickets);
+
+      // Reset input ticket
+      setTickets([{
+        id: crypto.randomUUID(),
+        ticketNumber: '',
+        wash: 0,
+        dry: 0,
+        total: 0
+      }]);
+
+      // Clear input state
+      setActiveInput(null);
+      setCurrentInputValue('');
+      setIsInputMode(false);
+
+      console.log('✅ Inserted new ticket:', newTicket);
+      console.log('✅ Updated ticket history:', validTickets);
+    } catch (error) {
+      console.error('Error inserting ticket:', error);
+      alert('Error saving ticket. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   // Function to reset only SOLD and ADD fields for inventory items
   const resetInventoryTransactionFields = () => {
     setInventoryItems(prev => prev?.map(item => ({
@@ -225,28 +327,25 @@ const EmployeePOSTerminal = () => {
     console.log('✅ Reset SOLD and ADD fields for all inventory items');
   }
 
-  // Load employees from local IndexedDB first, then sync with server on Save Progress
-  const loadEmployees = () => {
-    // Only load from local cache
+  // Load employees from localDB only - following offline-first architecture
+  const loadEmployees = async () => {
     try {
-      const cachedEmployees = localStorage.getItem('cached_employees');
-      if (cachedEmployees) {
-        const parsed = JSON.parse(cachedEmployees);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          setEmployeeList(parsed);
-          setEmployeeOptions(parsed.map(emp => ({ value: emp.id, label: emp.full_name })));
-          console.log(`� Loaded ${parsed.length} employees from cache`);
+      setLoadingEmployees(true);
+      
+      // Only load from localDB - no fallbacks or online checks
+      const localEmployees = await localDB.getAllEmployees();
+      
+      if (localEmployees?.length > 0) {
+        setEmployeeList(localEmployees);
+        console.log('✅ Loaded employees from localDB:', localEmployees.length);
         } else {
           setEmployeeList([]);
-        }
-      } else {
-        setEmployeeList([]);
+        console.log('💡 No employees in localDB. Click Save Progress to download.');
       }
-      // If no employees, show prompt in UI (handled below)
-      console.log('💾 No employees loaded from localDB. Prompt user to press Save Progress to load from online database.');
+      
     } catch (err) {
-      console.error('Failed to load employees:', err);
-      setError('Failed to load employees. Please try again later.');
+      console.error('Error loading employees:', err);
+      setError('Error loading employees. Click Save Progress to download.');
       setEmployeeList([]);
     } finally {
       setLoadingEmployees(false);
@@ -389,114 +488,29 @@ const EmployeePOSTerminal = () => {
     });
   };
 
-  // Load employees and initial data on component mount
-  useEffect(() => {
-    loadEmployees();
-    loadMasterInventoryItems();
-  }, []);
-  
-  // Initialize with actual employee id from userProfile
-  useEffect(() => {
-    if (userProfile?.id) {
-      setSelectedEmployee(userProfile.id);
-    }
-  }, [userProfile]);
+  // No automatic data loading on mount - everything loads through Save Progress button
 
-  // Remove authentication dependency - allow direct access for employees
+  // Only restore selected employee from localStorage on mount
   useEffect(() => {
-    // Remove user?.id dependency to allow access without login
-    loadEmployeeData();
-  }, []);
-
-  // Restore selectedEmployee, inventory, and clock-in state from localStorage/localDB on mount
-  useEffect(() => {
-    // Restore selectedEmployee
     const savedEmployee = localStorage.getItem('selected_employee');
     if (savedEmployee) {
       setSelectedEmployee(savedEmployee);
-      console.log('Restored selectedEmployee from localStorage:', savedEmployee);
-    }
-    // Fetch master product list from Supabase (now using master_inventory_items)
-    (async () => {
-      let masterProducts = [];
-      try {
-        const { data: masterData, error: masterError } = await supabase
-          .from('master_inventory_items')
-          .select('*')
-          .order('item_name');
-        if (masterError) throw masterError;
-        masterProducts = (masterData || []).map(item => ({
-          id: item.id,
-          name: item.item_name,
-          price: Number(item.price || 0),
-          qty: item.quantity || 1
-        }));
-        console.log('Fetched master product list from Supabase:', masterProducts);
-      } catch (e) {
-        console.error('Error fetching master product list:', e);
-      }
-      // Restore inventory from localDB and merge with master list
-      if (localDB.getAllInventoryItems) {
-        const localInventory = await localDB.getAllInventoryItems();
-        const inventoryByProduct = {};
-        for (const item of localInventory) {
-          const key = (item.name || item.item_name || '').toLowerCase();
-          if (!inventoryByProduct[key] ||
-              new Date(item.updated_at || item.created_at || 0) > new Date(inventoryByProduct[key].updated_at || inventoryByProduct[key].created_at || 0)) {
-            inventoryByProduct[key] = item;
-          }
-        }
-        const displayInventory = masterProducts.map(prod => {
-          const key = prod.name.toLowerCase();
-          const inv = inventoryByProduct[key];
-          return inv ? {
-            ...inv,
-            id: prod.id, // Always use the unique id from Supabase
-            name: prod.name,
-            price: prod.price,
-            qty: prod.qty
-          } : {
-            id: prod.id, // Use the unique id even for new items
-            name: prod.name,
-            price: prod.price,
-            qty: prod.qty,
-            start: 0,
-            add: 0,
-            sold: 0,
-            left: 0,
-            total: 0
-          };
-        });
-        setInventoryItems(displayInventory);
-        console.log('Display inventory (master + latest local):', displayInventory);
-      }
-    })();
-    // Restore clock-in state
-    const savedClockIn = localStorage.getItem('active_clock_in');
-    if (savedClockIn) {
-      try {
-        const parsed = JSON.parse(savedClockIn);
-        setActiveClockIn(parsed);
-        setClockStatus('clocked-in');
-        setClockTime(new Date(parsed.clock_in_time));
-        console.log('Restored clock-in state from localStorage:', parsed);
-      } catch (e) {
-        console.warn('Failed to parse saved clock-in state:', e);
-      }
     }
   }, []);
 
   // Restore notes from localDB on mount
   useEffect(() => {
-    if (localDB.getSession) {
-      localDB.getSession().then(localSession => {
-        if (localSession && localSession.notes) {
-          setNotes(localSession.notes);
-          console.log('Restored notes from localDB:', localSession.notes);
+    const loadSessionData = async () => {
+      if (selectedEmployee) {
+        const session = await localDB.getSessionByEmployeeAndDate(selectedEmployee, getTodayDate());
+        if (session) {
+          setNotes(session.notes || '');
+          console.log('Restored notes from localDB:', session.notes);
         }
-      });
-    }
-  }, []);
+      }
+    };
+    loadSessionData();
+  }, [selectedEmployee]);
 
   // Function to check if there are unsaved changes
   const hasUnsavedChanges = () => {
@@ -621,42 +635,202 @@ const EmployeePOSTerminal = () => {
     // Switch to new employee and reset only SOLD and ADD fields
     setSelectedEmployee(newEmployeeId);
     localStorage.setItem('selected_employee', newEmployeeId);
+    const today = getTodayDate();
+    await localDB.ready;
+    const session = await localDB.getSessionByEmployeeAndDate(newEmployeeId, today);
+    if (session) {
+      setCurrentSession(session);
+      // Set cash data and notes from existing session
+      setCashData({
+        started: session.cash_started || 0,
+        added: session.cash_added || 0,
+        coinsUsed: session.coins_used || 0,
+        total: (session.cash_started || 0) + (session.cash_added || 0) - (session.coins_used || 0)
+      });
+      setNotes(session.notes || '');
+      console.log('Loaded existing session data for employee and today:', session);
+    } else {
+      // Create new session for today
+      const newSession = {
+        id: (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() :
+          'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+            const r = Math.random() * 16 | 0, v = c === 'x' ? r : (r & 0x3 | 0x8);
+            return v.toString(16);
+          }),
+        created_at: new Date().toISOString(),
+        session_date: today,
+        employee_id: newEmployeeId,
+        status: 'active'
+      };
+      await localDB.storeSession(newSession);
+      setCurrentSession(newSession);
+      // Store session ID in localStorage to maintain consistency
+      localStorage.setItem('current_session_id', newSession.id);
+      console.log('Created new session for employee and today:', newSession);
+    }
 
-    // Reset inventory for new shift: start = previous left, add/sold/total = 0, left = new start
-    setInventoryItems(prev => prev.map(item => {
-      const newStart = item.left;
-      return {
+    try {
+      // Get ALL inventory items from localDB
+      const allInventory = await localDB.getAllInventoryItems();
+      console.log('Retrieved all inventory from localDB:', allInventory);
+      
+      // Create a map to store the latest state for each item, grouped by name
+      const latestInventoryMap = {};
+      
+      // First, group all items by their name
+      const itemsByName = {};
+      allInventory.forEach(item => {
+        if (item.name) {
+          const key = item.name.toLowerCase();
+          if (!itemsByName[key]) {
+            itemsByName[key] = [];
+          }
+          itemsByName[key].push({
+            ...item,
+            timestamp: new Date(item.created_at || item.updated_at || 0).getTime()
+          });
+        }
+      });
+      
+      // For each group, find the item with non-zero values and latest timestamp
+      Object.entries(itemsByName).forEach(([key, items]) => {
+        // Sort by timestamp descending
+        items.sort((a, b) => b.timestamp - a.timestamp);
+        
+        // Find the most recent item with non-zero values
+        const latestItem = items.find(item => 
+          (item.start > 0 || item.left > 0 || item.add > 0 || item.sold > 0)
+        ) || items[0]; // Fallback to most recent if no non-zero values found
+        
+        if (latestItem) {
+          latestInventoryMap[key] = latestItem;
+        }
+      });
+      
+      console.log('Latest inventory map with non-zero values:', latestInventoryMap);
+
+      // Ensure we have a valid session ID
+      let sessionId;
+      if (session?.id) {
+        sessionId = session.id;
+      } else {
+        // Create a new session if none exists
+        const emergencySession = {
+          id: crypto.randomUUID(),
+          created_at: new Date().toISOString(),
+          session_date: new Date().toISOString().split('T')[0],
+          employee_id: newEmployeeId,
+          status: 'active'
+        };
+        await localDB.storeSession(emergencySession);
+        setCurrentSession(emergencySession);
+        sessionId = emergencySession.id;
+        console.log('Created emergency session due to missing session:', emergencySession);
+      }
+
+      // Update inventory for new shift using the latest state from localDB
+      const updatedInventory = inventoryItems.map(item => {
+        const latestItem = latestInventoryMap[item.name.toLowerCase()];
+        console.log(`Processing item ${item.name}:`, { 
+          current: item, 
+          latest: latestItem,
+          latestLeft: latestItem?.left,
+          latestStart: latestItem?.start
+        });
+        
+        // If we have a latest item with actual values, use those
+        if (latestItem && (latestItem.left > 0 || latestItem.start > 0)) {
+          // Use the left value from the latest record as both start and left
+          const stockValue = latestItem.left || latestItem.start || 0;
+          
+          return {
+            ...item,
+            start: stockValue,     // Set start to the current stock level
+            add: 0,               // Reset add
+            sold: 0,              // Reset sold
+            total: 0,             // Reset total
+            left: stockValue,     // Set left to the current stock level
+            pos_session_id: sessionId,
+            price: latestItem.price || item.price, // Preserve price if available
+            qty: latestItem.qty || item.qty       // Preserve qty if available
+          };
+        }
+        
+        // If no valid latest values, preserve current values if they exist
+        const currentStock = item.left || item.start || 0;
+        
+        return {
+          ...item,
+          start: currentStock,    // Keep current stock level
+          add: 0,                // Reset add
+          sold: 0,               // Reset sold
+          total: 0,              // Reset total
+          left: currentStock,    // Keep current stock level
+          pos_session_id: sessionId
+        };
+      });
+      
+      console.log('Updated inventory:', updatedInventory);
+      
+      setInventoryItems(updatedInventory);
+      
+      // Store the updated inventory in localDB
+      await localDB.storeInventoryItems(updatedInventory);
+      
+      console.log('Successfully updated inventory with session ID:', sessionId);
+    } catch (error) {
+      console.error('Error updating inventory during employee switch:', error);
+      // In case of error, keep the current inventory but reset add/sold
+      const safeInventory = inventoryItems.map(item => ({
         ...item,
-        start: newStart,   // Carry over the actual stock
         add: 0,
         sold: 0,
-        total: 0,
-        left: newStart     // left = start + add - sold = start
-      };
-    }));
-
-    // Also reset tickets, cash, and notes for the new employee shift
-    try {
-      // Generate new sequential tickets for the new employee
-      const ticketNumbers = await posService?.generateTicketNumbers(3);
-      let newTickets = ticketNumbers?.map((ticketNum, index) => ({
-        id: index + 1,
-        ticketNumber: ticketNum,
-        wash: 0,
-        dry: 0,
         total: 0
       }));
-      setTickets(newTickets);
-      console.log(`✅ Generated fresh sequential tickets for ${newEmployeeId}: ${ticketNumbers?.join(', ')}`);
-    } catch (error) {
-      console.error('Error generating tickets for new employee:', error);
-      // Fallback to default reset
-      setTickets([
-        { id: 1, ticketNumber: '001', wash: 0, dry: 0, total: 0 },
-        { id: 2, ticketNumber: '002', wash: 0, dry: 0, total: 0 },
-        { id: 3, ticketNumber: '003', wash: 0, dry: 0, total: 0 }
-      ]);
+      setInventoryItems(safeInventory);
     }
+
+      // Load tickets for current session
+      const allStoredTickets = await localDB.getAllTickets();
+      const currentSessionId = existingSession?.id || newSession?.id;
+      
+      // Filter tickets for current session
+      const sessionTickets = allStoredTickets.filter(ticket => 
+        ticket.pos_session_id === currentSessionId &&
+        ticket.id !== 'message' &&
+        (ticket.ticketNumber || ticket.ticket_number) &&
+        ((ticket.wash > 0 || ticket.dry > 0) ||
+         (ticket.wash_amount > 0 || ticket.dry_amount > 0))
+      ).sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+      
+      setAllStoredTickets(sessionTickets);
+      console.log('Loaded tickets for current session:', sessionTickets);
+
+      // Generate new tickets for the new employee while preserving old ones in localDB
+      try {
+        // Get new sequential ticket numbers
+        const ticketNumbers = await posService?.generateTicketNumbers(3);
+        const newTickets = ticketNumbers?.map((ticketNum, index) => ({
+          id: crypto.randomUUID(), // Use UUID to avoid conflicts with old tickets
+          ticketNumber: ticketNum,
+          wash: 0,
+          dry: 0,
+          total: 0,
+          pos_session_id: session?.id // Link to new session
+        }));
+        
+        setTickets(newTickets);
+        console.log('Generated new tickets for employee switch:', newTickets);
+      } catch (error) {
+        console.error('Error generating new tickets:', error);
+        // Fallback to basic tickets if generation fails
+        const newTickets = [
+          { id: crypto.randomUUID(), ticketNumber: '', wash: 0, dry: 0, total: 0, pos_session_id: session?.id },
+          { id: crypto.randomUUID(), ticketNumber: '', wash: 0, dry: 0, total: 0, pos_session_id: session?.id },
+          { id: crypto.randomUUID(), ticketNumber: '', wash: 0, dry: 0, total: 0, pos_session_id: session?.id }
+        ];
+        setTickets(newTickets);
+      }
 
     // Reset cash section for new employee shift
     setCashData({
@@ -686,19 +860,38 @@ const EmployeePOSTerminal = () => {
 
 ✅ START stock levels now match previous shift's actual stock.`);
 
-    // Generate a new session ID for the new employee/shift
-    const newSessionId = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() :
-      'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
-        const r = Math.random() * 16 | 0, v = c === 'x' ? r : (r & 0x3 | 0x8);
-        return v.toString(16);
-      });
-    console.log('Generated new session ID for employee:', newSessionId);
-    setCurrentSession({
+    // Check for existing session for this employee today
+    const existingSession = await localDB.getSessionByEmployeeAndDate(newEmployeeId, getTodayDate());
+    
+    if (existingSession) {
+      console.log('Using existing session for employee:', existingSession);
+      setCurrentSession(existingSession);
+      localStorage.setItem('current_session_id', existingSession.id);
+    } else {
+      // Generate a new session only if one doesn't exist
+      const newSessionId = crypto.randomUUID();
+      const newSession = {
       id: newSessionId,
       created_at: new Date().toISOString(),
+        session_date: getTodayDate(),
       employee_id: newEmployeeId,
-      status: 'active'
-    });
+        status: 'active',
+        notes: '',
+        inventory_total: 0,
+        wash_dry_total: 0,
+        grand_total: 0,
+        cash_started: 0,
+        cash_added: 0,
+        coins_used: 0,
+        cash_total: 0
+      };
+      
+      // Save new session to localDB
+      await localDB.storeSession(newSession);
+      console.log('Created new session for employee:', newSession);
+      setCurrentSession(newSession);
+      localStorage.setItem('current_session_id', newSessionId);
+    }
   };
 
   const loadEmployeeData = async () => {
@@ -720,11 +913,11 @@ const EmployeePOSTerminal = () => {
       
       setInventoryItems(defaultInventory);
       
-      // Initialize with default ticket numbers
+      // Initialize with default ticket numbers and unique IDs
       const defaultTickets = [
-        { id: 1, ticketNumber: '001', wash: 0, dry: 0, total: 0 },
-        { id: 2, ticketNumber: '002', wash: 0, dry: 0, total: 0 },
-        { id: 3, ticketNumber: '003', wash: 0, dry: 0, total: 0 }
+        { id: crypto.randomUUID(), ticketNumber: '001', wash: 0, dry: 0, total: 0 },
+        { id: crypto.randomUUID(), ticketNumber: '002', wash: 0, dry: 0, total: 0 },
+        { id: crypto.randomUUID(), ticketNumber: '003', wash: 0, dry: 0, total: 0 }
       ];
       
       setTickets(defaultTickets);
@@ -740,7 +933,6 @@ const EmployeePOSTerminal = () => {
       
       // ENFORCE: Only create session if selectedEmployee is a valid UUID
       if (!selectedEmployee || typeof selectedEmployee !== 'string' || selectedEmployee.length < 10) {
-        alert('Please select a valid employee before starting a session.');
         setCurrentSession(null);
         setLoading(false);
         return;
@@ -789,12 +981,33 @@ const EmployeePOSTerminal = () => {
     }));
   }, [cashData?.started, cashData?.added, cashData?.coinsUsed]);
 
-  // FIXED: Simple field click handler without auto-fill
+  // Handle field click with proper input mode
   const handleFieldClick = (fieldInfo) => {
-    // Clear ALL input-related state when switching fields
+    // If clicking the same field, just toggle input mode
+    if (activeInput && 
+        activeInput.section === fieldInfo.section && 
+        activeInput.id === fieldInfo.id && 
+        activeInput.field === fieldInfo.field) {
+      setIsInputMode(!isInputMode);
+      return;
+    }
+
+    // Clear input state when switching fields
     setCurrentInputValue('');
-    setIsInputMode(false);
+    setIsInputMode(true);
     setActiveInput(fieldInfo);
+
+    // For inventory fields, pre-fill with current value
+    if (fieldInfo.section === 'inventory') {
+      const item = inventoryItems.find(i => i.id === fieldInfo.id);
+      if (item && item[fieldInfo.field] !== undefined) {
+        setCurrentInputValue(item[fieldInfo.field].toString());
+      }
+    }
+    // For cash fields, pre-fill with current value
+    else if (fieldInfo.section === 'cash' && cashData[fieldInfo.field] !== undefined) {
+      setCurrentInputValue(cashData[fieldInfo.field].toString());
+    }
   };
 
   // Enhanced field value update with proper decimal handling
@@ -883,15 +1096,36 @@ const EmployeePOSTerminal = () => {
     const newValue = currentInputValue + digit;
     setCurrentInputValue(newValue);
     
-    // Only update the field value when the input is complete or valid
-    const numericValue = parseFloat(newValue);
-    if (!isNaN(numericValue)) {
-      updateFieldValue(numericValue);
+    // For ticket fields
+    if (tickets[0] && activeInput === 'ticketNumber') {
+      handleFieldChange('ticketNumber', newValue, tickets[0].id);
+    } else if (tickets[0] && (activeInput === 'wash' || activeInput === 'dry')) {
+      const numericValue = parseFloat(newValue);
+      if (!isNaN(numericValue)) {
+        handleFieldChange(activeInput, numericValue, tickets[0].id);
+      }
+    }
+    // For inventory fields
+    else if (activeInput.section === 'inventory') {
+      const numericValue = parseFloat(newValue);
+      if (!isNaN(numericValue)) {
+        updateFieldValue(numericValue);
+      }
+    }
+    // For cash fields
+    else if (activeInput.section === 'cash') {
+      const numericValue = parseFloat(newValue);
+      if (!isNaN(numericValue)) {
+        updateFieldValue(numericValue);
+      }
     }
   };
 
   const handleDecimalInput = () => {
     if (!activeInput) return;
+    
+    // Only allow decimal for wash/dry fields
+    if (activeInput !== 'wash' && activeInput !== 'dry') return;
     
     // Prevent multiple decimal points
     if (currentInputValue?.includes('.')) return;
@@ -902,24 +1136,33 @@ const EmployeePOSTerminal = () => {
     const newValue = currentInputValue === '' ? '0.' : currentInputValue + '.';
     setCurrentInputValue(newValue);
     
-    // Update with the decimal value
-    const numericValue = parseFloat(newValue);
-    if (!isNaN(numericValue)) {
-      updateFieldValue(numericValue);
-    } else {
-      updateFieldValue(0);
+    // For ticket fields
+    if (tickets[0]) {
+      const numericValue = parseFloat(newValue);
+      if (!isNaN(numericValue)) {
+        handleFieldChange(activeInput, numericValue, tickets[0].id);
+      } else {
+        handleFieldChange(activeInput, 0, tickets[0].id);
+      }
     }
   };
 
   const handleClear = () => {
-    if (!activeInput) return;
+    if (!activeInput || !tickets[0]) return;
+    
     setCurrentInputValue('');
-    setIsInputMode(false);
-    updateFieldValue(0);
+    setIsInputMode(true);  // Keep input mode active
+    
+    // Clear the active field
+    if (activeInput === 'ticketNumber') {
+      handleFieldChange('ticketNumber', '', tickets[0].id);
+    } else if (activeInput === 'wash' || activeInput === 'dry') {
+      handleFieldChange(activeInput, 0, tickets[0].id);
+    }
   };
 
   const handleEnter = () => {
-    // Finalize the input and clear the input mode
+    // Just clear input mode without resetting values
     setIsInputMode(false);
     setActiveInput(null);
     setCurrentInputValue('');
@@ -966,21 +1209,60 @@ const EmployeePOSTerminal = () => {
       if (!employeeObj) {
         throw new Error('Selected employee not found in employee list.');
       }
-      // Use the id from the employee object (should be the same as selectedEmployee)
-      const clockInResult = await timesheetService.clockIn(employeeObj.id);
-      if (clockInResult.error) throw clockInResult.error;
-      const timesheet = clockInResult.data;
-      const currentTime = new Date(timesheet.clock_in_time);
+
+      // Create timesheet entry
+      const now = new Date();
+      const timesheet = {
+        id: crypto.randomUUID(),
+        employee_id: employeeObj.id,
+        clock_in_time: now.toISOString(),
+        clock_out_time: null,
+        created_at: now.toISOString()
+      };
+
+      // Store timesheet in both localStorage and localDB
+      const timesheetData = {
+        ...timesheet,
+        work_duration: 0,
+        updated_at: now.toISOString()
+      };
+      
+      localStorage.setItem('active_timesheet', JSON.stringify(timesheetData));
+      
+      // Store in localDB (this will mark it as unsynced)
+      await localDB.storeTimesheet(timesheetData);
+      console.log('✅ Stored timesheet in localDB:', timesheetData);
+
+      // If online, save to Supabase
+      if (navigator.onLine) {
+        const { error } = await supabase
+          .from('employee_timesheets')
+          .insert([{
+            id: timesheet.id,
+            employee_id: timesheet.employee_id,
+            clock_in_time: timesheet.clock_in_time,
+            clock_out_time: null,
+            created_at: timesheet.created_at
+          }]);
+
+        if (error) throw error;
+        
+        // If Supabase save successful, mark as synced in localDB
+        await localDB.markTimesheetsSynced([timesheet.id]);
+      }
+      
       // Update state
       setActiveClockIn(timesheet);
       setClockStatus('clocked-in');
-      setClockTime(currentTime);
+      setClockTime(now);
       setShowClockInModal(false);
+      
       // Persist clock-in state
       localStorage.setItem('active_clock_in', JSON.stringify(timesheet));
       localStorage.setItem('selected_employee', selectedEmployee);
+      
       // Show success message
-      alert(`${employeeObj.full_name || selectedEmployee} clocked in successfully at ${currentTime.toLocaleTimeString()}`);
+      alert(`${employeeObj.full_name || selectedEmployee} clocked in successfully at ${now.toLocaleTimeString()}`);
     } catch (error) {
       console.error('Error in handleClockIn:', error);
       const errorMessage = error.message || 'Failed to clock in';
@@ -1003,26 +1285,74 @@ const EmployeePOSTerminal = () => {
       alert('Please select an employee before clocking out.');
       return;
     }
+
     try {
       setLoading(true);
       setError(null);
-      // Use local storage for clock out
-      const clockOutResult = await timesheetService.clockOut(employeeId);
-      if (clockOutResult.error) throw clockOutResult.error;
-      const timesheet = clockOutResult.data;
-      const clockOutTime = new Date(timesheet.clock_out_time);
-      // Calculate work duration
-      const workDuration = timesheet.total_hours ? 
-        `${Math.floor(timesheet.total_hours)}h ${Math.round((timesheet.total_hours % 1) * 60)}m` : '';
+      
+      // Get active timesheet record
+      const activeTimesheetStr = localStorage.getItem('active_timesheet');
+      if (!activeTimesheetStr) {
+        throw new Error('No active timesheet found');
+      }
+
+      const activeTimesheet = JSON.parse(activeTimesheetStr);
+      const now = new Date();
+      const clockInTime = new Date(activeTimesheet.clock_in_time);
+      
+      // Calculate duration in hours
+      const durationHours = (now - clockInTime) / (1000 * 60 * 60);
+      const hours = Math.floor(durationHours);
+      const minutes = Math.round((durationHours % 1) * 60);
+      const workDuration = `${hours}h ${minutes}m`;
+
+      // Update timesheet record
+      const timesheet = {
+        ...activeTimesheet,
+        clock_out_time: now.toISOString()
+      };
+
+      // Store updated timesheet in both localStorage and localDB
+      const updatedTimesheet = {
+        ...timesheet,
+        work_duration_minutes: Math.round(durationHours * 60), // Convert hours to minutes
+        updated_at: now.toISOString()
+      };
+      
+      localStorage.setItem('active_timesheet', JSON.stringify(updatedTimesheet));
+      
+      // Store in localDB (this will mark it as unsynced)
+      await localDB.storeTimesheet(updatedTimesheet);
+      console.log('✅ Updated timesheet in localDB:', updatedTimesheet);
+
+      // If online, save to Supabase
+      if (navigator.onLine) {
+        const { error } = await supabase
+          .from('employee_timesheets')
+          .update({
+            clock_out_time: timesheet.clock_out_time,
+            updated_at: now.toISOString()
+          })
+          .eq('id', timesheet.id);
+
+        if (error) throw error;
+        
+        // If Supabase save successful, mark as synced in localDB
+        await localDB.markTimesheetsSynced([timesheet.id]);
+      }
+      
       // Update state
       setActiveClockIn(null);
       setClockStatus('clocked-out');
       setClockTime(null);
+      
       // Remove persisted clock-in state
       localStorage.removeItem('active_clock_in');
+
       // Show success message
-      const employeeName = employeeId || userProfile?.full_name || 'Employee';
-      alert(`${employeeName} clocked out successfully at ${clockOutTime.toLocaleTimeString()}${workDuration ? ` (Worked: ${workDuration})` : ''}\n\n✅ Data saved locally. Don't forget to sync with the server when online!`);
+      const employeeObj = employeeList.find(emp => emp.id === employeeId);
+      const employeeName = employeeObj?.full_name || employeeId;
+      alert(`${employeeName} clocked out successfully at ${now.toLocaleTimeString()} (Worked: ${workDuration})`);
     } catch (error) {
       console.error('Error in handleClockOut:', error);
       setError(`Clock out failed: ${error?.message || 'Unknown error'}`);
@@ -1196,343 +1526,774 @@ const EmployeePOSTerminal = () => {
 
   // Save all data to database and fetch updated information
   const handleSave = async () => {
-    console.log('Save Progress button pressed - handleSave called');
-    if (!navigator.onLine) {
-      alert('No internet detected. Saving to localDB for now. Try saving later when you have wifi connection.');
-      // Add note to session if possible
-      if (localDB.storeSession && currentSession) {
-        const sessionToSave = {
-          ...currentSession,
-          notes: (notes ? notes + '\n' : '') + 'No internet detected, saving to localDB for now. Try saving later when you have wifi connection.',
-          inventory_total: totals.inventorySalesTotal,
-          wash_dry_total: totals.washDrySubtotal,
-          grand_total: totals.grandTotal,
-          cash_started: cashData.started,
-          cash_added: cashData.added,
-          coins_used: cashData.coinsUsed,
-          cash_total: cashData.total
-        };
-        console.log('Saving session to localDB (offline):', sessionToSave);
-        await localDB.storeSession(sessionToSave);
-        console.log('Saved session with notes and totals/cash to localDB (offline):', sessionToSave);
-      }
-      return;
-    }
-    let tableChecks = { hasInventory: false, hasTickets: false };
     try {
+      // Ensure localDB is ready before any operations
       await localDB.ready;
-      // 1. Employees
-      const localEmployees = await localDB.getAllEmployees ? await localDB.getAllEmployees() : [];
-      console.log('Checked localDB employees:', localEmployees);
-      if (!localEmployees || localEmployees.length === 0) {
-        const { data: employees, error: employeeError } = await supabase
-          .from('user_profiles')
-          .select('id, full_name, email, role')
-          .order('full_name', { ascending: true });
-        if (employeeError) {
-          console.error('Failed to fetch employees from Supabase:', employeeError);
-        } else if (employees && employees.length > 0) {
-          await Promise.all(employees.map(emp => localDB.storeEmployeeProfile(emp)));
-          localStorage.setItem('cached_employees', JSON.stringify(employees));
-          localStorage.setItem('cached_employee_options', JSON.stringify(employees.map(emp => ({ value: emp.id, label: emp.full_name }))));
-          setEmployeeList(employees);
-          setEmployeeOptions(employees.map(emp => ({ value: emp.id, label: emp.full_name })));
-          // Auto-select if only one employee
-          if (employees.length === 1) {
-            setSelectedEmployee(employees[0].id);
-            localStorage.setItem('selected_employee', employees[0].id);
-          }
-          console.log('Fetched employees from Supabase and saved to localDB:', employees);
-          alert('✅ Employees loaded from Supabase and saved locally.');
-        } else {
-          console.warn('No employees found in Supabase.');
-        }
-      }
-      // 2. Inventory (always check after employees)
-      const localInventory = await localDB.getAllInventoryItems();
-      console.log('Checked localDB inventory:', localInventory);
-      const allZeroed = !localInventory || localInventory.length === 0 || localInventory.every(item =>
-        (Number(item.start || 0) === 0) &&
-        (Number(item.add || 0) === 0) &&
-        (Number(item.sold || 0) === 0) &&
-        (Number(item.left || 0) === 0) &&
-        (Number(item.total || 0) === 0)
-      );
-      console.log('allZeroed:', allZeroed);
-      if (allZeroed) {
-        console.log('Inventory is empty or zeroed, fetching from Supabase...');
-        const { data: supabaseInventory, error: supabaseError } = await supabase
-          .from('pos_inventory_items')
-          .select('*')
-          .order('item_name', { ascending: true })
-          .order('updated_at', { ascending: false });
-        if (supabaseError) {
-          console.error('Failed to fetch inventory from Supabase:', supabaseError);
-        } else if (supabaseInventory && supabaseInventory.length > 0) {
-          // Save all records to localDB for history
-          await localDB.storeInventoryItems(supabaseInventory.map(item => ({
-            id: item.id,
-            dbId: item.id,
-            name: item.item_name,
-            qty: item.quantity || 1,
-            price: Number(item.price || 0),
-            start: Number(item.start_count || 0),
-            add: Number(item.add_count || 0),
-            sold: Number(item.sold_count || 0),
-            left: Number(item.left_count || 0),
-            total: Number(item.total_amount || 0),
-            updated_at: item.updated_at
-          })));
-          const checkSaved = await localDB.getAllInventoryItems();
-          console.log('After Save Progress: all inventory records saved to localDB:', checkSaved);
-          // For display, only use the most recent record per item
-          const latestByItem = {};
-          for (const item of checkSaved) {
-            const key = item.name;
-            if (
-              !latestByItem[key] ||
-              new Date(item.updated_at) > new Date(latestByItem[key].updated_at)
-            ) {
-              latestByItem[key] = item;
-            }
-          }
-          const mostRecentForDisplay = Object.values(latestByItem);
-          await mergeMasterWithLocalInventory();
-          console.log('For display, using most recent inventory per item:', mostRecentForDisplay);
-          alert('✅ Inventory loaded from Supabase and saved locally.');
-        } else {
-          console.warn('No inventory found in Supabase.');
-        }
-        // Skip upload to Supabase in this case
-        setLoading(false);
-        return;
-      } else {
-        // LocalDB has data: upload to Supabase, do NOT overwrite localDB/state
-        // Save all records to localDB for history
-        await localDB.storeInventoryItems(inventoryItems);
-        const checkSaved = await localDB.getAllInventoryItems();
-        console.log('After Save Progress: all inventory records saved to localDB:', checkSaved);
-        // For display, only use the most recent record per item
-        const latestByItem = {};
-        for (const item of checkSaved) {
-          const key = item.name;
-          if (
-            !latestByItem[key] ||
-            new Date(item.updated_at) > new Date(latestByItem[key].updated_at)
-          ) {
-            latestByItem[key] = item;
-          }
-        }
-        const mostRecentForDisplay = Object.values(latestByItem);
-        await mergeMasterWithLocalInventory();
-        console.log('For display, using most recent inventory per item:', mostRecentForDisplay);
-        // If offline, skip Supabase sync and show local save message
-        if (!navigator.onLine) {
-          console.log('Returning early: offline, saved locally');
-          alert('✅ All data saved locally. You are offline. Press Save Progress again to sync with server when online.');
-          setLoading(false);
+      
+      // Step 1: Always try to download and store initial data when Save Progress is clicked
+      if (navigator.onLine) {
+        console.log('🔄 Downloading latest data from server...');
+        
+        // Fetch and store employees first
+        const { data: employees, error: empError } = await supabase.from('user_profiles').select('*');
+        if (empError) {
+          console.error('Error fetching employees:', empError);
+          alert('Error downloading employee data. Please try again.');
           return;
         }
-        // Upload to Supabase (one row per item per day, all in code)
-        try {
-          const todayISOString = new Date().toISOString();
-          // Always insert a new row for each item (never update/upsert)
-          const payload = inventoryItems.map(item => ({
-            pos_session_id: currentSession?.id, // Link to current session
-            item_name: item.name,
-            quantity: item.qty || 1,
-            price: Number(item.price || 0),
-            start_count: Number(item.start || 0),
-            add_count: Number(item.add || 0),
-            sold_count: Number(item.sold || 0),
-            left_count: Number(item.left || 0),
-            total_amount: Number(item.total || 0),
-            created_at: todayISOString,
-            updated_at: todayISOString
-          }));
-          console.log('Preparing to upload inventory for session:', currentSession?.id);
-          console.table(payload);
-          let insertError = null;
-          try {
-            const insertResponse = await supabase.from('pos_inventory_items').insert(payload);
-            console.log('Supabase insert response:', insertResponse);
-            if (insertResponse.error) {
-              throw insertResponse.error;
-            }
-            console.log('Inserted new inventory items for today:', payload);
-            alert('✅ Local inventory uploaded to Supabase (insert only, full history preserved).');
-          } catch (e) {
-            insertError = e;
-            if (e?.code === '409') {
-              // Duplicate detected, generate new session ID and retry
-              const newSessionId = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() :
-                'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
-                  const r = Math.random() * 16 | 0, v = c === 'x' ? r : (r & 0x3 | 0x8);
-                  return v.toString(16);
-                });
-              console.warn('409 Conflict: Duplicate inventory for session. Creating new session:', newSessionId);
-              // Update currentSession and payload
-              setCurrentSession(cs => ({ ...cs, id: newSessionId }));
-              const newPayload = payload.map(item => ({ ...item, pos_session_id: newSessionId }));
+        
+        if (!employees || employees.length === 0) {
+          alert('No employees found in database. Please contact administrator.');
+          return;
+        }
+
+        // First ensure localDB is ready
+        await localDB.ready;
+
+        // Store employees in batches to prevent database closing
+        const batchSize = 5;
+        for (let i = 0; i < employees.length; i += batchSize) {
+          const batch = employees.slice(i, i + batchSize);
+          
+          // Process each batch
+          await Promise.all(batch.map(async (employee) => {
+            let retries = 3;
+            while (retries > 0) {
               try {
-                await supabase.from('pos_inventory_items').insert(newPayload);
-                console.log('Inserted inventory items with new session:', newPayload);
-                alert('✅ Duplicate detected. Started new session and uploaded inventory.');
-              } catch (retryErr) {
-                console.error('Retry insert failed:', retryErr);
-                alert('❌ Failed to upload inventory after starting new session.');
+                // Wait for any previous transaction to complete
+                await new Promise(resolve => setTimeout(resolve, 100));
+            await localDB.storeEmployeeProfile(employee);
+                break; // Success, exit retry loop
+              } catch (error) {
+                retries--;
+                if (retries === 0) {
+                  console.error('Failed to store employee after retries:', employee.id);
+                  // Don't throw, just log and continue with other employees
+                  console.error('Error details:', error);
+                }
+                // Wait longer between retries
+                await new Promise(resolve => setTimeout(resolve, 2000));
               }
-            } else {
-              console.error('Error uploading inventory to Supabase:', e);
             }
-          }
-        } catch (e) {
-          console.error('Error uploading inventory to Supabase:', e);
+          }));
+
+          // Wait between batches
+          await new Promise(resolve => setTimeout(resolve, 500));
         }
-      }
-      // In handleSave, when saving session to localDB and Supabase
-      // Save notes and all totals/cash fields to localDB as part of session
-      if (localDB.storeSession && currentSession) {
-        const sessionToSave = {
-          ...currentSession,
-          notes,
-          inventory_total: totals.inventorySalesTotal,
-          wash_dry_total: totals.washDrySubtotal,
-          grand_total: totals.grandTotal,
-          cash_started: cashData.started,
-          cash_added: cashData.added,
-          coins_used: cashData.coinsUsed,
-          cash_total: cashData.total
-        };
-        console.log('Saving session to localDB:', sessionToSave);
-        await localDB.storeSession(sessionToSave);
-        console.log('Saved session with notes and totals/cash to localDB:', sessionToSave);
-      }
-      // --- Save session to Supabase ---
-      let sessionId = currentSession?.id;
-      let sessionPayload = {
-        ...currentSession,
-        employee_id: selectedEmployee,
-        cash_started: cashData.started,
-        cash_added: cashData.added,
-        coins_used: cashData.coinsUsed,
-        cash_total: cashData.total,
-        inventory_total: totals.inventorySalesTotal,
-        wash_dry_total: totals.washDrySubtotal,
-        grand_total: totals.grandTotal,
-        notes,
-        updated_at: new Date().toISOString(),
-      };
-      let retry = false;
-      let retryCount = 0;
-      do {
-        retry = false;
-        console.log('--- Attempting to save session to Supabase ---');
-        const { error: sessionError } = await supabase
-              .from('pos_sessions')
-          .upsert([sessionPayload], { onConflict: 'id' });
-        if (sessionError && sessionError.code === '409' && retryCount < 2) {
-          // 409 conflict: generate new session ID and retry
-          const newSessionId = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() :
-            'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
-              const r = Math.random() * 16 | 0, v = c === 'x' ? r : (r & 0x3 | 0x8);
-              return v.toString(16);
-            });
-          sessionId = newSessionId;
-          sessionPayload = { ...sessionPayload, id: newSessionId };
-          setCurrentSession(cs => ({ ...cs, id: newSessionId }));
-          retry = true;
-          retryCount++;
-          console.warn('409 Conflict: Duplicate session. Retrying with new session ID:', newSessionId);
-        } else if (sessionError) {
-          console.error('Error saving session to Supabase:', sessionError);
-          alert('❌ Failed to save session. Inventory and tickets not saved.');
-          setLoading(false);
+
+        // Update UI with downloaded employees
+          setEmployeeList(employees);
+          console.log('✅ Downloaded and stored employees:', employees.length);
+
+        // If no employee is selected, prompt user to select one
+        if (!selectedEmployee) {
+          alert('Please select an employee to continue.');
           return;
         }
-      } while (retry && retryCount < 2);
-      // --- Confirm session exists in database ---
-      const { data: sessionRows, error: selectSessionError } = await supabase
-        .from('pos_sessions')
-        .select('id')
-        .eq('id', sessionId);
-      if (selectSessionError || !sessionRows || sessionRows.length === 0) {
-        alert('❌ Session row not found in database. Please check your internet connection and retry.');
-        setLoading(false);
-        return;
-      }
-      // --- Save inventory items ---
-      const todayISOString = new Date().toISOString();
-      const inventoryPayload = inventoryItems.map(item => ({
-        pos_session_id: sessionId,
-        item_name: item.name,
-        quantity: item.qty || 1,
-        price: Number(item.price || 0),
-        start_count: Number(item.start || 0),
-        add_count: Number(item.add || 0),
-        sold_count: Number(item.sold || 0),
-        left_count: Number(item.left || 0),
-        total_amount: Number(item.total || 0),
-        created_at: todayISOString,
-        updated_at: todayISOString
-      }));
-      const insertInventoryResponse = await supabase.from('pos_inventory_items').insert(inventoryPayload);
-      if (insertInventoryResponse.error) {
-        alert('❌ Failed to save inventory.');
-        setLoading(false);
-        return;
-      }
-      // --- Save tickets ---
-      const ticketPayload = tickets.map(ticket => ({
-        pos_session_id: sessionId,
-        ticket_number: ticket.ticketNumber,
-        wash_amount: ticket.wash || 0,
-        dry_amount: ticket.dry || 0,
-        total_amount: ticket.total || 0,
-        created_at: todayISOString,
-        updated_at: todayISOString
-      }));
-      const insertTicketResponse = await supabase.from('pos_wash_dry_tickets').insert(ticketPayload);
-      if (insertTicketResponse.error) {
-        alert('❌ Failed to save tickets.');
-        setLoading(false);
-        return;
-      }
-      alert('✅ All data saved to Supabase successfully!');
-      // --- Timesheet sync logic ---
-      if (timesheetService.syncTimesheets) {
-        const syncResults = await timesheetService.syncTimesheets();
-        const successCount = Array.isArray(syncResults) ? syncResults.filter(r => r.success).length : 0;
-        const failureCount = Array.isArray(syncResults) ? syncResults.filter(r => !r.success).length : 0;
-        if (successCount > 0 || failureCount > 0) {
-          alert(`Timesheet sync complete: ${successCount} succeeded, ${failureCount} failed.`);
+
+        // Fetch last 10 tickets from Supabase
+        const { data: lastTickets, error: ticketsError } = await supabase
+          .from('pos_wash_dry_tickets')
+          .select('*')
+          .order('created_at', { ascending: false })
+          .limit(10);
+
+        if (!ticketsError && lastTickets?.length > 0) {
+          // Store tickets in localDB
+          await localDB.storeTickets(lastTickets);
+          setAllStoredTickets(lastTickets);
+          console.log('✅ Downloaded and stored last tickets:', lastTickets.length);
+        } else {
+          // If no tickets found in Supabase, set a message in the history
+          setAllStoredTickets([{
+            id: 'message',
+            ticketNumber: 'No tickets found in server - you can start any number you want',
+            wash: 0,
+            dry: 0,
+            total: 0,
+            created_at: new Date().toISOString()
+          }]);
+        }
+
+        // Fetch and store master inventory
+        const { data: masterInventory, error: invError } = await supabase.from('master_inventory_items').select('*');
+        if (!invError && masterInventory?.length > 0) {
+          // Get existing inventory from localDB first
+          const existingInventory = await localDB.getAllInventoryItems();
+          const existingMap = {};
+          
+          // Create a map of the most recent values for each item
+          existingInventory.forEach(item => {
+            if (item.name) {
+              const key = item.name.toLowerCase();
+              if (!existingMap[key] || new Date(item.created_at || 0) > new Date(existingMap[key].created_at || 0)) {
+                existingMap[key] = item;
+              }
+            }
+          });
+
+          // Transform master inventory items while preserving existing values
+          const formattedInventory = masterInventory.map(item => {
+            const existingItem = existingMap[item.item_name.toLowerCase()];
+            return {
+              id: item.id,
+              name: item.item_name,
+              qty: item.quantity || existingItem?.qty || 1,
+              price: Number(item.price || existingItem?.price || 0),
+              start: existingItem?.left || existingItem?.start || 0,
+              add: 0,
+              sold: 0,
+              left: existingItem?.left || existingItem?.start || 0,
+              total: 0,
+              pos_session_id: currentSession?.id // Ensure session ID is set
+            };
+          });
+          
+          console.log('Merging master inventory with existing values:', {
+            existing: existingMap,
+            formatted: formattedInventory
+          });
+          
+          await localDB.storeInventoryItems(formattedInventory);
+          setInventoryItems(formattedInventory);
+          console.log('✅ Downloaded and stored master inventory:', masterInventory.length);
         }
       }
-      // Persist tickets to localDB after every change
-      if (localDB.storeTickets) {
-        localDB.storeTickets(tickets)
-          .then(() => console.log('✅ Tickets saved to localDB:', tickets))
-          .catch(e => console.error('Failed to save tickets to localDB:', e));
+
+      // Check if we already have a session for this employee and date
+      const today = new Date().toISOString().split('T')[0];
+      let existingSession = await localDB.getSessionByEmployeeAndDate(selectedEmployee, today);
+
+      // Create or update session
+      // Validate employee ID before creating session
+      if (!selectedEmployee || typeof selectedEmployee !== 'string' || selectedEmployee.length < 10) {
+        throw new Error('Invalid employee ID. Please select a valid employee before saving.');
       }
-      // Persist cashData to localDB (as part of session) after every change
-      if (localDB.getSession && localDB.storeSession && currentSession) {
-        localDB.getSession().then(session => {
-          const updatedSession = {
-            ...(session || {}),
-            id: currentSession.id,
-            created_at: currentSession.created_at,
-            employee_id: currentSession.employee_id,
-            status: currentSession.status,
-            cash_started: cashData.started,
-            cash_added: cashData.added,
-            coins_used: cashData.coinsUsed,
-            cash_total: cashData.total,
-          };
-          localDB.storeSession(updatedSession).catch(e => console.error('Failed to save cashData to localDB:', e));
+
+      const sessionToSave = {
+        id: existingSession?.id || currentSession?.id || crypto.randomUUID(),
+        created_at: existingSession?.created_at || currentSession?.created_at || new Date().toISOString(),
+        session_date: today,
+        employee_id: selectedEmployee, // Remove empty string fallback
+        status: 'active',
+        notes: notes || '',
+        inventory_total: totals.inventorySalesTotal || 0,
+        wash_dry_total: totals.washDrySubtotal || 0,
+        grand_total: totals.grandTotal || 0,
+        cash_started: cashData.started || 0,
+        cash_added: cashData.added || 0,
+        coins_used: cashData.coinsUsed || 0,
+        cash_total: cashData.total || 0,
+        updated_at: new Date().toISOString()
+      };
+
+      // Save session to localDB
+      await localDB.storeSession(sessionToSave);
+      console.log('✅ Saved session to localDB:', sessionToSave);
+
+      // Save inventory items to localDB with session ID
+      const inventoryWithSession = inventoryItems.map(item => ({
+        ...item,
+        pos_session_id: sessionToSave.id,
+        synced: navigator.onLine ? 1 : 0 // Only mark as unsynced when offline
+      }));
+      await localDB.storeInventoryItems(inventoryWithSession);
+      console.log('✅ Saved inventory items to localDB:', inventoryWithSession.length);
+
+      // Save only new tickets to localDB with current session ID
+      const newTickets = tickets.filter(ticket => !ticket.id || ticket.id.toString().length < 10);
+      const ticketsWithSession = newTickets.map(ticket => ({
+        ...ticket,
+        id: crypto.randomUUID(),
+        pos_session_id: sessionToSave.id,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      }));
+      
+      if (ticketsWithSession.length > 0) {
+      await localDB.storeTickets(ticketsWithSession);
+        console.log('✅ Saved new tickets to localDB:', ticketsWithSession);
+      }
+
+      // Handle offline state and validation
+      if (!navigator.onLine) {
+        alert('No internet detected. Data saved to localDB. Will sync to server when online.');
+        return; // Don't try to sync if offline
+      } 
+      
+      // Validate employee selection and session ID
+      if (!selectedEmployee) {
+        alert('Error: No employee selected. Please select an employee before saving.');
+        return;
+      } 
+      
+      if (!sessionToSave.id) {
+        alert('Error: Invalid session ID. Please refresh and try again.');
+        return;
+      }
+
+      // Step 2: Upload everything to Supabase
+      console.log('🔄 Uploading data to Supabase...');
+
+      // Get all unsynced sessions from localDB
+      const unsyncedSessions = await localDB.getUnsyncedSessions();
+      console.log('Found unsynced sessions to upload:', unsyncedSessions);
+
+      // Create a map of old session IDs to new ones (in case we need to create new sessions)
+      const sessionIdMap = {};
+
+      // First ensure we have a valid session
+      let currentSessionId = sessionToSave.id || currentSession?.id;
+      console.log('Using session:', currentSessionId);
+
+      // Validate we have what we need
+      if (!currentSessionId || !selectedEmployee) {
+        console.error('❌ No valid session or employee');
+        alert('Please select an employee and ensure you have an active session before saving.');
+        return;
+      }
+
+      // First check if sessions exist for this employee today
+      const { data: activeSessions, error: checkError } = await supabase
+        .from('pos_sessions')
+        .select('*')
+        .match({ 
+          employee_id: selectedEmployee,
+          session_date: getTodayDate(),
+          status: 'active'
+        })
+        .order('created_at', { ascending: false }); // Get most recent first
+
+      if (checkError) {
+        console.error('❌ Error checking for active sessions:', checkError);
+        return;
+      }
+
+      // Handle multiple sessions case
+      let activeSession;
+      if (activeSessions && activeSessions.length > 0) {
+        // First try to find our local session in the active sessions
+        activeSession = activeSessions.find(s => s.id === currentSessionId);
+        
+        if (!activeSession) {
+          // If our local session isn't found, use the most recent
+          if (activeSessions.length > 1) {
+            console.warn(`Found ${activeSessions.length} active sessions for today. Using most recent.`);
+            // Mark older sessions as inactive
+            const oldSessions = activeSessions.slice(1);
+            for (const session of oldSessions) {
+              await supabase
+                .from('pos_sessions')
+                .update({ status: 'inactive', updated_at: new Date().toISOString() })
+                .eq('id', session.id);
+            }
+          }
+          // Use the most recent session
+          activeSession = activeSessions[0];
+          console.log('Using most recent active session:', activeSession.id);
+          currentSessionId = activeSession.id;
+        } else {
+          console.log('Found matching session in Supabase:', activeSession.id);
+        }
+        
+        // Update active session with current values but preserve creation time
+        const sessionPayload = {
+          id: activeSession.id,
+          created_at: activeSession.created_at, // Keep original creation time
+          session_date: getTodayDate(),
+          employee_id: selectedEmployee,
+          status: 'active',
+          notes: notes || '',
+          inventory_total: totals.inventorySalesTotal || 0,
+          wash_dry_total: totals.washDrySubtotal || 0,
+          grand_total: totals.grandTotal || 0,
+          cash_started: cashData.started || 0,
+          cash_added: cashData.added || 0,
+          coins_used: cashData.coinsUsed || 0,
+          cash_total: cashData.total || 0,
+          updated_at: new Date().toISOString()
+        };
+
+        console.log('Upserting session in Supabase:', sessionPayload);
+        const { error: createError } = await supabase
+          .from('pos_sessions')
+          .upsert([sessionPayload], {
+            onConflict: 'id',
+            ignoreDuplicates: false
+          });
+
+        if (createError) {
+          console.error('❌ Failed to upsert session in Supabase:', createError);
+          return;
+        }
+        console.log('✅ Created new session in Supabase:', currentSessionId);
+      }
+
+      // Following offline-first rules:
+      // 1. First try to use the current session from localStorage
+      const storedSessionId = localStorage.getItem('current_session_id');
+      let localActiveSession;
+      
+      if (storedSessionId) {
+        localActiveSession = await localDB.getSession(storedSessionId);
+        // Verify it's valid for current employee and date
+        if (localActiveSession?.employee_id !== selectedEmployee || 
+            localActiveSession?.session_date !== getTodayDate()) {
+          localActiveSession = null;
+        }
+      }
+      
+      // If no valid stored session, check for today's session
+      if (!localActiveSession) {
+        localActiveSession = await localDB.getSessionByEmployeeAndDate(selectedEmployee, getTodayDate());
+      }
+      
+      // If we have a valid session, use it
+      if (localActiveSession) {
+        console.log('Using existing session:', localActiveSession.id);
+        currentSessionId = localActiveSession.id;
+        // Update localStorage to maintain consistency
+        localStorage.setItem('current_session_id', localActiveSession.id);
+      }
+
+      // 2. Get all sessions that need to be synced
+      let sessionsToSync = [...unsyncedSessions]; // Copy existing unsynced sessions
+      console.log('Found unsynced sessions:', sessionsToSync);
+      
+      // 3. Add current session if it's not in the list and we don't have a local active session
+      if (!sessionsToSync.find(s => s.id === currentSessionId) && !localActiveSession) {
+        sessionsToSync.push({
+          id: currentSessionId,
+          created_at: new Date().toISOString(),
+          session_date: new Date().toISOString().split('T')[0],
+          employee_id: selectedEmployee,
+          status: 'active',
+          notes: notes || '',
+          inventory_total: totals.inventorySalesTotal || 0,
+          wash_dry_total: totals.washDrySubtotal || 0,
+          grand_total: totals.grandTotal || 0,
+          cash_started: cashData.started || 0,
+          cash_added: cashData.added || 0,
+          coins_used: cashData.coinsUsed || 0,
+          cash_total: cashData.total || 0,
+          updated_at: new Date().toISOString()
         });
       }
+      
+      // 3. Track uploaded sessions
+      const uploadedSessionIds = new Set();
+
+      // 4. Upload sessions one by one to prevent duplicates
+      for (const session of sessionsToSync) {
+        try {
+          // First check if session exists
+          const { data: existingSession, error: checkError } = await supabase
+          .from('pos_sessions')
+            .select('*')
+            .match({ id: session.id })
+            .maybeSingle();
+
+          if (checkError) {
+            console.error('❌ Error checking session:', session.id, checkError);
+            continue;
+          }
+
+          const sessionPayload = {
+            id: session.id,
+            created_at: session.created_at,
+            session_date: session.session_date,
+            employee_id: session.employee_id,
+            status: session.status,
+            notes: session.notes || '',
+            inventory_total: session.inventory_total || 0,
+            wash_dry_total: session.wash_dry_total || 0,
+            grand_total: session.grand_total || 0,
+            cash_started: session.cash_started || 0,
+            cash_added: session.cash_added || 0,
+            coins_used: session.coins_used || 0,
+            cash_total: session.cash_total || 0,
+            updated_at: new Date().toISOString()
+          };
+
+          if (existingSession) {
+            // Update existing session
+            console.log('Updating session:', session.id);
+            const { error: updateError } = await supabase
+              .from('pos_sessions')
+              .update(sessionPayload)
+              .eq('id', session.id);
+
+            if (updateError) {
+              console.error('❌ Error updating session:', session.id, updateError);
+              continue;
+            }
+          } else {
+            // Insert new session
+            console.log('Creating new session:', session.id);
+            const { error: insertError } = await supabase
+              .from('pos_sessions')
+              .insert([sessionPayload]);
+
+            if (insertError) {
+              console.error('❌ Error creating session:', session.id, insertError);
+              continue;
+            }
+          }
+
+          // Mark as synced and track
+        await localDB.markSessionsSynced([session.id]);
+          uploadedSessionIds.add(session.id);
+          console.log('✅ Session synced:', session.id);
+
+        } catch (error) {
+          console.error('❌ Error processing session:', session.id, error);
+        }
+      }
+
+      // Log sync results
+      console.log('✅ All sessions synced:', uploadedSessionIds.size);
+
+      console.log('✅ All sessions uploaded to Supabase:', sessionsToSync.length);
+
+      // Get all unsynced inventory items and current inventory items
+      const [unsyncedInventory, currentInventory] = await Promise.all([
+        localDB.getUnsyncedInventoryItems(),
+        localDB.getAllInventoryItems()
+      ]);
+
+      // Add current inventory items if they're not already in unsynced
+      const currentSessionItems = currentInventory.filter(item => item.pos_session_id === currentSessionId);
+      const unsyncedIds = new Set(unsyncedInventory.map(item => item.id));
+      const additionalItems = currentSessionItems.filter(item => !unsyncedIds.has(item.id));
+
+      const allInventoryToSync = [...unsyncedInventory, ...additionalItems];
+      console.log('Found inventory items to sync:', {
+        unsynced: unsyncedInventory.length,
+        current: additionalItems.length,
+        total: allInventoryToSync.length
+      });
+
+      // First get all inventory items for these sessions from Supabase
+      const { data: existingInventory, error: invCheckError } = await supabase
+          .from('pos_inventory_items')
+        .select('id, pos_session_id, item_name')
+        .in('pos_session_id', [...uploadedSessionIds]);
+
+      if (invCheckError) {
+        console.error('❌ Error checking existing inventory:', invCheckError);
+        return;
+      }
+
+      // Create lookup map for existing inventory
+      const existingInventoryMap = new Map();
+      existingInventory?.forEach(item => {
+        const key = `${item.pos_session_id}_${item.item_name}`;
+        existingInventoryMap.set(key, item.id);
+      });
+
+      // Prepare inventory items for update/insert
+      const inventoryToUpdate = [];
+      const inventoryToInsert = [];
+
+      allInventoryToSync.forEach(item => {
+        // Skip if session not verified
+        if (!uploadedSessionIds.has(item.pos_session_id)) {
+          console.log('Skipping inventory item - session not verified:', {
+            item_name: item.name,
+            session_id: item.pos_session_id
+          });
+          return;
+        }
+
+        const key = `${item.pos_session_id}_${item.name}`;
+        const payload = {
+          pos_session_id: item.pos_session_id,
+          item_name: item.name,
+          quantity: item.qty || 1,
+          price: Number(item.price || 0),
+          start_count: Number(item.start || 0),
+          add_count: Number(item.add || 0),
+          sold_count: Number(item.sold || 0),
+          left_count: Number(item.left || 0),
+          total_amount: Number(item.total || 0),
+          created_at: item.created_at || new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        };
+
+        // If item exists, add its ID and update
+        if (existingInventoryMap.has(key)) {
+          payload.id = existingInventoryMap.get(key);
+          inventoryToUpdate.push(payload);
+        } else {
+          inventoryToInsert.push(payload);
+        }
+      });
+
+      // No need to delete existing inventory - we'll use upsert for updates
+
+      // Filter and prepare inventory items that have valid session IDs
+      // Handle inventory updates
+      if (inventoryToUpdate.length > 0) {
+        console.log('Updating existing inventory items:', inventoryToUpdate.length);
+        const { error: updateError } = await supabase
+        .from('pos_inventory_items')
+          .upsert(inventoryToUpdate);
+
+        if (updateError) {
+          console.error('❌ Error updating inventory:', updateError);
+        return;
+      }
+      }
+
+      // Handle new inventory items
+      if (inventoryToInsert.length > 0) {
+        console.log('Inserting new inventory items:', inventoryToInsert.length);
+        // Add unique IDs for each new item
+        const itemsWithIds = inventoryToInsert.map(item => ({
+          ...item,
+          id: crypto.randomUUID()
+        }));
+        const { error: insertError } = await supabase
+          .from('pos_inventory_items')
+          .insert(itemsWithIds);
+
+        if (insertError) {
+          console.error('❌ Error inserting inventory:', insertError);
+          return;
+        }
+      }
+
+      // Mark all as synced
+      await localDB.markInventoryItemsSynced(unsyncedInventory.map(item => item.id));
+
+      console.log('✅ Inventory uploaded to Supabase:', {
+        updated: inventoryToUpdate.length,
+        inserted: inventoryToInsert.length
+      });
+
+       // Get all unsynced tickets
+       const unsyncedTickets = await localDB.getUnsyncedTickets();
+       console.log('Found unsynced tickets:', unsyncedTickets);
+
+       // Get all session IDs from unsynced tickets
+       const ticketSessionIds = [...new Set(unsyncedTickets
+         .filter(ticket => ticket && ticket.pos_session_id)
+         .map(ticket => ticket.pos_session_id))];
+       
+       // Verify these sessions exist in Supabase
+       const { data: validSessions } = await supabase
+         .from('pos_sessions')
+         .select('id')
+         .in('id', ticketSessionIds);
+       
+       const validSessionIds = validSessions?.map(s => s.id) || [];
+       console.log('Valid session IDs in Supabase:', validSessionIds);
+
+       // Delete existing tickets for valid sessions
+       if (validSessionIds.length > 0) {
+         await supabase
+           .from('pos_wash_dry_tickets')
+           .delete()
+           .in('pos_session_id', validSessionIds);
+       }
+
+       // Filter out empty tickets and prepare payload
+       // Group tickets by session ID and verify sessions exist
+       const ticketsBySession = {};
+       const uniqueSessionIds = new Set();
+       
+       unsyncedTickets.forEach(ticket => {
+         if (ticket.pos_session_id) {
+           uniqueSessionIds.add(ticket.pos_session_id);
+           if (!ticketsBySession[ticket.pos_session_id]) {
+             ticketsBySession[ticket.pos_session_id] = [];
+           }
+           ticketsBySession[ticket.pos_session_id].push(ticket);
+         }
+       });
+       console.log('Tickets grouped by session:', ticketsBySession);
+
+       // Prepare tickets for upload, maintaining session relationships
+       const ticketPayload = unsyncedTickets
+         .filter(ticket => {
+           // First check if the ticket's session exists in Supabase
+           const hasValidSession = validSessionIds.includes(ticket.pos_session_id);
+           // Keep only tickets that have:
+           // 1. A valid UUID (not numeric IDs which are templates)
+           // 2. A ticket number
+           // 3. Either wash or dry amount
+           // 4. A valid session ID
+           // Only proceed if session exists in Supabase
+           if (!hasValidSession) {
+             console.log('Skipping ticket due to invalid session:', ticket.id);
+             return false;
+           }
+
+           const isValidId = typeof ticket.id === 'string' && ticket.id.includes('-');
+           const hasNumber = ticket.ticketNumber || ticket.ticket_number;
+           const hasAmount = (ticket.wash > 0 || ticket.dry > 0) || 
+                           (ticket.wash_amount > 0 || ticket.dry_amount > 0);
+
+           const isValid = isValidId && hasNumber && hasAmount;
+           if (!isValid) {
+             console.log('Skipping invalid ticket:', { id: ticket.id, hasNumber, hasAmount });
+           }
+           return isValid;
+         })
+         .map(ticket => {
+           const { synced, ...ticketWithoutSync } = ticket;
+           
+           // Use existing amounts if they're in the old format
+           const washAmount = ticket.wash_amount || ticket.wash || 0;
+           const dryAmount = ticket.dry_amount || ticket.dry || 0;
+           const totalAmount = ticket.total_amount || ticket.total || (washAmount + dryAmount);
+           const ticketNumber = ticket.ticket_number || ticket.ticketNumber;
+           
+           return {
+             id: ticket.id,
+             pos_session_id: ticket.pos_session_id,
+             ticket_number: ticketNumber,
+             wash_amount: washAmount,
+             dry_amount: dryAmount,
+             total_amount: totalAmount,
+             created_at: ticket.created_at || new Date().toISOString(),
+             updated_at: new Date().toISOString()
+           };
+         });
+
+       console.log('Uploading tickets to Supabase:', ticketPayload);
+
+       const { error: ticketError } = await supabase
+         .from('pos_wash_dry_tickets')
+         .upsert(ticketPayload, { 
+           onConflict: 'id',
+           ignoreDuplicates: false
+         });
+
+      if (ticketError) {
+        console.error('❌ Error uploading tickets to Supabase:', ticketError);
+        alert('Error saving tickets to server. Data is safe in local storage.');
+        return;
+      }
+
+      // Mark tickets as synced
+      await localDB.markTicketsSynced(unsyncedTickets.map(t => t.id));
+      console.log('✅ All tickets uploaded to Supabase:', ticketPayload.length);
+
+      // Get all unsynced timesheets
+      const unsyncedTimesheets = await localDB.getUnsyncedTimesheets();
+      console.log('Found unsynced timesheets:', unsyncedTimesheets);
+
+      if (unsyncedTimesheets.length > 0) {
+        // First verify which timesheets already exist in Supabase
+        const timesheetIds = unsyncedTimesheets.map(t => t.id);
+        const { data: existingTimesheets } = await supabase
+          .from('employee_timesheets')
+          .select('id')
+          .in('id', timesheetIds);
+
+        const existingIds = new Set(existingTimesheets?.map(t => t.id) || []);
+
+        // Split timesheets into updates and inserts
+        const timesheetsToUpdate = [];
+        const timesheetsToInsert = [];
+
+        unsyncedTimesheets.forEach(timesheet => {
+          const payload = {
+            id: timesheet.id,
+            employee_id: timesheet.employee_id,
+            clock_in_time: timesheet.clock_in_time,
+            clock_out_time: timesheet.clock_out_time,
+            work_duration_minutes: timesheet.work_duration_minutes,
+            session_date: timesheet.session_date || new Date().toISOString().split('T')[0],
+            status: timesheet.clock_out_time ? 'clocked_out' : 'clocked_in',
+            notes: timesheet.notes,
+            created_at: timesheet.created_at,
+            updated_at: new Date().toISOString()
+          };
+
+          if (existingIds.has(timesheet.id)) {
+            timesheetsToUpdate.push(payload);
+          } else {
+            timesheetsToInsert.push(payload);
+          }
+        });
+
+      // Process timesheet updates
+      if (timesheetsToUpdate.length > 0) {
+        console.log('Updating existing timesheets:', timesheetsToUpdate.length);
+        const { error: updateError } = await supabase
+          .from('employee_timesheets')
+          .upsert(timesheetsToUpdate);
+
+          if (updateError) {
+            console.error('❌ Error updating timesheets:', updateError);
+            return;
+          }
+        }
+
+      // Handle new timesheets
+      if (timesheetsToInsert.length > 0) {
+        console.log('Inserting new timesheets:', timesheetsToInsert.length);
+        const { error: insertError } = await supabase
+          .from('employee_timesheets')
+          .insert(timesheetsToInsert);
+
+          if (insertError) {
+            console.error('❌ Error inserting timesheets:', insertError);
+          return;
+          }
+        }
+
+        // Mark all as synced
+        await localDB.markTimesheetsSynced(unsyncedTimesheets.map(t => t.id));
+        console.log('✅ All timesheets synced:', {
+          updated: timesheetsToUpdate.length,
+          inserted: timesheetsToInsert.length
+        });
+      } else {
+        console.log('No unsynced timesheets found');
+      }
+
+      // After successful save, reload latest state from localDB
+      const [latestInventory, latestTickets, latestSession] = await Promise.all([
+        localDB.getAllInventoryItems ? localDB.getAllInventoryItems() : [],
+        localDB.getAllTickets ? localDB.getAllTickets() : [],
+        localDB.getSessionByEmployeeAndDate(selectedEmployee, getTodayDate())
+      ]);
+
+      // Update stored tickets history
+      setAllStoredTickets(latestTickets);
+      if (Array.isArray(latestInventory)) {
+        setInventoryItems(latestInventory);
+        console.log('✅ Reloaded inventoryItems from localDB after save:', latestInventory);
+      }
+      if (Array.isArray(latestTickets)) {
+        setTickets(latestTickets);
+        console.log('✅ Reloaded tickets from localDB after save:', latestTickets);
+      }
+      if (latestSession) {
+        setCurrentSession(latestSession);
+        setCashData({
+          started: latestSession.cash_started || 0,
+          added: latestSession.cash_added || 0,
+          coinsUsed: latestSession.coins_used || 0,
+          total: (latestSession.cash_started || 0) + (latestSession.cash_added || 0) - (latestSession.coins_used || 0)
+        });
+        setNotes(latestSession.notes || '');
+        console.log('✅ Reloaded session/cashData/notes from localDB after save:', latestSession);
+      }
+      alert('✅ All data saved to Supabase and reloaded from localDB successfully!');
     } catch (err) {
       console.error('❌ Error in handleSave:', err);
+      // Show user-friendly error message
+      if (!navigator.onLine) {
+        alert('No internet connection. Data saved to local storage only.');
+      } else if (err.message?.includes('localDB')) {
+        alert('Error with local storage. Please try again.');
+          } else {
+        alert('Error saving data. Please try again.');
+      }
     } finally {
       setLoading(false);
     }
@@ -1555,68 +2316,235 @@ const EmployeePOSTerminal = () => {
     return localSave;
   };
 
+      // Load stored tickets and keep updated
   useEffect(() => {
-    const loadFromLocalDB = async () => {
-      await localDB.ready;
-      // Load inventory
-      const localInventory = await localDB.getAllInventoryItems();
-      console.log('Loaded inventory from localDB:', localInventory);
-      if (localInventory && localInventory.length > 0) {
-        setInventoryItems(localInventory);
-      } else {
-        // Only set defaults if localDB is empty
-        setInventoryItems([
-          { id: 1, name: 'Downy 19 oz', qty: 1, price: 5.50, start: 0, add: 0, sold: 0, left: 0, total: 0 },
-          { id: 2, name: 'Gain Sheets 15ct', qty: 1, price: 2.25, start: 0, add: 0, sold: 0, left: 0, total: 0 },
-          { id: 3, name: 'Roma 17 63 oz', qty: 1, price: 2.75, start: 0, add: 0, sold: 0, left: 0, total: 0 },
-          { id: 4, name: 'Xtra 56 oz', qty: 1, price: 5.50, start: 0, add: 0, sold: 0, left: 0, total: 0 },
-          { id: 5, name: 'Clorox 16 oz', qty: 1, price: 2.50, start: 0, add: 0, sold: 0, left: 0, total: 0 }
-        ]);
-      }
-      // Load tickets
-      if (localDB.getAllTickets) {
-        const localTickets = await localDB.getAllTickets();
-        console.log('Loaded tickets from localDB:', localTickets);
-        if (localTickets && localTickets.length > 0) {
-          setTickets(localTickets);
-          console.log('✅ Tickets restored from localDB on mount:', localTickets);
-        } else {
-          setTickets([
-            { id: 1, ticketNumber: '001', wash: 0, dry: 0, total: 0 },
-            { id: 2, ticketNumber: '002', wash: 0, dry: 0, total: 0 },
-            { id: 3, ticketNumber: '003', wash: 0, dry: 0, total: 0 }
-          ]);
-        }
-      }
-      // Load session
-      if (localDB.getSession) {
-        const localSession = await localDB.getSession();
-        console.log('Loaded session from localDB:', localSession);
-        if (localSession) setCurrentSession(localSession);
+    const loadStoredTickets = async () => {
+      try {
+        const storedTickets = await localDB.getAllTickets();
+        // Filter out empty template tickets
+        const validTickets = storedTickets.filter(ticket => 
+          ticket.id !== 'message' && // Keep message tickets
+          (ticket.ticketNumber || ticket.ticket_number) && // Has a number
+          ((ticket.wash > 0 || ticket.dry > 0) || // Has amounts in new format
+           (ticket.wash_amount > 0 || ticket.dry_amount > 0)) // Has amounts in old format
+        );
+        
+        // Sort by creation date, newest first
+        const sortedTickets = validTickets.sort((a, b) => {
+          const dateA = new Date(a.created_at || 0);
+          const dateB = new Date(b.created_at || 0);
+          return dateB - dateA;
+        });
+        
+        setAllStoredTickets(sortedTickets);
+        console.log('✅ Loaded stored tickets:', sortedTickets);
+      } catch (error) {
+        console.error('Error loading stored tickets:', error);
       }
     };
-    loadFromLocalDB();
+    loadStoredTickets();
   }, []);
 
-  // Add or update this useEffect to always create a session when selectedEmployee is set
+  // Initialize state from localDB if available
   useEffect(() => {
-    if (selectedEmployee && !currentSession) {
-      const generateUUID = () => {
-        return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
-          const r = Math.random() * 16 | 0;
-          const v = c === 'x' ? r : (r & 0x3 | 0x8);
-          return v.toString(16);
-        });
-      };
-      setCurrentSession({
-        id: generateUUID(),
-        created_at: new Date().toISOString(),
-        employee_id: selectedEmployee,
-        status: 'active'
-      });
-      console.log('Auto-created new session for employee:', selectedEmployee);
-    }
-  }, [selectedEmployee, currentSession]);
+    let isMounted = true;
+    const initializeFromLocalDB = async () => {
+      await localDB.ready;
+      
+      // Load all tickets for history first
+      const allStoredTickets = await localDB.getAllTickets();
+      // Filter tickets for current session
+      const sessionTickets = allStoredTickets.filter(ticket => 
+        ticket.pos_session_id === currentSession?.id &&
+        ticket.id !== 'message' &&
+        (ticket.ticketNumber || ticket.ticket_number) &&
+        ((ticket.wash > 0 || ticket.dry > 0) ||
+         (ticket.wash_amount > 0 || ticket.dry_amount > 0))
+      ).sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+      setAllStoredTickets(sessionTickets);
+      console.log('Loaded all tickets for history on init:', sessionTickets);
+      
+      // Load employees from localDB
+      const localEmployees = await localDB.getAllEmployees();
+      if (localEmployees?.length > 0) {
+        setEmployeeList(localEmployees);
+      }
+
+      // Only load session data if we have a selected employee
+      if (selectedEmployee) {
+        // Get today's session for the selected employee
+        const session = await localDB.getSessionByEmployeeAndDate(selectedEmployee, getTodayDate());
+        console.log('Loading session for employee:', selectedEmployee, session);
+        
+        if (session) {
+          // Set session data
+          setCurrentSession(session);
+          // Store session ID in localStorage
+          localStorage.setItem('current_session_id', session.id);
+          
+          // Set cash data
+          setCashData({
+            started: session.cash_started || 0,
+            added: session.cash_added || 0,
+            coinsUsed: session.coins_used || 0,
+            total: (session.cash_started || 0) + (session.cash_added || 0) - (session.coins_used || 0)
+          });
+          
+          // Set notes
+          setNotes(session.notes || '');
+
+      // Load all tickets for history view
+      const allStoredTickets = await localDB.getAllTickets();
+      setAllStoredTickets(allStoredTickets);
+      console.log('Loaded all tickets for history:', allStoredTickets);
+
+      // Load inventory and tickets for this session
+      const localInventory = await localDB.getAllInventoryItems();
+      const sessionInventory = localInventory.filter(item => item.pos_session_id === session.id);
+      if (sessionInventory.length > 0) {
+        setInventoryItems(sessionInventory);
+      } else {
+              // If no session inventory, get the latest inventory state from localDB
+            const allInventory = await localDB.getAllInventoryItems();
+            console.log('Retrieved all inventory for initialization:', allInventory);
+            
+            // Create a map of the latest state for each item
+            const latestInventoryMap = {};
+            allInventory.forEach(item => {
+              if (item.name) {
+                const key = item.name.toLowerCase();
+                if (!latestInventoryMap[key] || 
+                    new Date(item.created_at || 0) > new Date(latestInventoryMap[key].created_at || 0)) {
+                  latestInventoryMap[key] = item;
+                }
+              }
+            });
+            
+            // First try to get unique items from localDB to create structure
+            const uniqueItems = Array.from(new Set(allInventory.map(item => item.name)))
+              .filter(name => name) // Filter out null/undefined names
+              .map(name => {
+                const item = allInventory.find(i => i.name === name);
+                return {
+                  id: item.id,
+                  item_name: name,
+                  quantity: item.qty,
+                  price: item.price
+                };
+              });
+
+            let inventoryStructure = [];
+            
+            // If we have items in localDB, use those
+            if (uniqueItems.length > 0) {
+              inventoryStructure = uniqueItems;
+              console.log('Using inventory structure from localDB:', uniqueItems);
+            }
+            // If online, try to get from Supabase
+            else if (navigator.onLine) {
+              try {
+                const { data: masterInventory } = await supabase.from('master_inventory_items').select('*');
+                if (masterInventory?.length > 0) {
+                  inventoryStructure = masterInventory;
+                  console.log('Using inventory structure from Supabase:', masterInventory);
+                }
+              } catch (error) {
+                console.log('Failed to fetch master inventory (offline mode):', error);
+                // In case of error, fall back to local structure if available
+                if (uniqueItems.length > 0) {
+                  inventoryStructure = uniqueItems;
+                  console.log('Falling back to local inventory structure:', uniqueItems);
+                }
+              }
+            }
+
+            // If we have any inventory structure, use it
+            if (inventoryStructure.length > 0) {
+              const defaultInventory = inventoryStructure.map(item => {
+                const latestItem = latestInventoryMap[item.item_name?.toLowerCase() || item.name?.toLowerCase()];
+                return {
+                  id: item.id,
+                  name: item.item_name || item.name,
+                  qty: item.quantity || latestItem?.qty || 1,
+                  price: Number(item.price || latestItem?.price || 0),
+                  start: latestItem?.left || latestItem?.start || 0,
+                  add: 0,
+                  sold: 0,
+                  left: latestItem?.left || latestItem?.start || 0,
+                  total: 0,
+                  pos_session_id: session.id
+                };
+              });
+              
+              console.log('Initializing inventory with latest values:', {
+                latest: latestInventoryMap,
+                new: defaultInventory
+              });
+              
+              setInventoryItems(defaultInventory);
+              // Store the initialized inventory
+              await localDB.storeInventoryItems(defaultInventory);
+            } else {
+              setInventoryItems([]);
+            }
+          }
+
+          const localTickets = await localDB.getAllTickets();
+          const sessionTickets = localTickets.filter(ticket => ticket.pos_session_id === session.id);
+          if (sessionTickets.length > 0) {
+            setTickets(sessionTickets);
+          } else {
+            // Create default tickets with session ID
+            const defaultTickets = [
+              { id: 1, ticketNumber: '', wash: 0, dry: 0, total: 0, pos_session_id: session.id },
+              { id: 2, ticketNumber: '', wash: 0, dry: 0, total: 0, pos_session_id: session.id },
+              { id: 3, ticketNumber: '', wash: 0, dry: 0, total: 0, pos_session_id: session.id }
+            ];
+            setTickets(defaultTickets);
+            // Store the default tickets
+            await localDB.storeTickets(defaultTickets);
+          }
+        } else {
+          // No session found, create a new one
+          const newSession = {
+            id: crypto.randomUUID(),
+            created_at: new Date().toISOString(),
+            session_date: getTodayDate(),
+            employee_id: selectedEmployee,
+            status: 'active',
+            notes: '',
+            cash_started: 0,
+            cash_added: 0,
+            coins_used: 0,
+            cash_total: 0,
+            inventory_total: 0,
+            wash_dry_total: 0,
+            grand_total: 0
+          };
+          await localDB.storeSession(newSession);
+          setCurrentSession(newSession);
+          localStorage.setItem('current_session_id', newSession.id);
+          
+          // Set initial state
+          setCashData({ started: 0, added: 0, coinsUsed: 0, total: 0 });
+          setNotes('');
+          setInventoryItems([]);
+            const defaultTickets = [
+            { id: crypto.randomUUID(), ticketNumber: '', wash: 0, dry: 0, total: 0, pos_session_id: newSession.id },
+            { id: crypto.randomUUID(), ticketNumber: '', wash: 0, dry: 0, total: 0, pos_session_id: newSession.id },
+            { id: crypto.randomUUID(), ticketNumber: '', wash: 0, dry: 0, total: 0, pos_session_id: newSession.id }
+          ];
+          await localDB.storeTickets(defaultTickets);
+            setTickets(defaultTickets);
+        }
+      }
+    };
+
+    initializeFromLocalDB();
+    return () => {
+      isMounted = false;
+    };
+  }, [selectedEmployee]); // Re-run when selected employee changes
 
   // Helper: Merge master inventory with local/latest inventory
   const mergeMasterWithLocalInventory = async () => {
@@ -1679,19 +2607,22 @@ const EmployeePOSTerminal = () => {
 
   // On mount, restore cashData from localDB session if available
   useEffect(() => {
-    if (localDB.getSession) {
-      localDB.getSession().then(localSession => {
-        if (localSession && (localSession.cash_started !== undefined || localSession.cash_added !== undefined)) {
+    const loadCashData = async () => {
+      if (selectedEmployee) {
+        const session = await localDB.getSessionByEmployeeAndDate(selectedEmployee, getTodayDate());
+        if (session && (session.cash_started !== undefined || session.cash_added !== undefined)) {
           setCashData({
-            started: localSession.cash_started || 0,
-            added: localSession.cash_added || 0,
-            coinsUsed: localSession.coins_used || 0,
-            total: (localSession.cash_started || 0) + (localSession.cash_added || 0) - (localSession.coins_used || 0)
+            started: session.cash_started || 0,
+            added: session.cash_added || 0,
+            coinsUsed: session.coins_used || 0,
+            total: (session.cash_started || 0) + (session.cash_added || 0) - (session.coins_used || 0)
           });
+          console.log('Restored cash data from localDB:', session);
         }
-      });
-    }
-  }, []);
+      }
+    };
+    loadCashData();
+  }, [selectedEmployee]);
 
   // Helper to get last ticket number from Supabase and store in localStorage
   const updateLastTicketNumberFromSupabase = async () => {
@@ -1701,7 +2632,7 @@ const EmployeePOSTerminal = () => {
         .select('ticket_number')
         .order('ticket_number', { ascending: false })
         .limit(1)
-        .single();
+              .single();
       const lastTicketNumber = data?.ticket_number ? parseInt(data.ticket_number, 10) : 0;
       localStorage.setItem('last_ticket_number', lastTicketNumber);
       return lastTicketNumber;
@@ -1711,26 +2642,7 @@ const EmployeePOSTerminal = () => {
     }
   };
 
-  // On mount, fetch last ticket number from Supabase and store in localStorage
-  useEffect(() => {
-    const fetchLastTicketNumber = async () => {
-      if (navigator.onLine) {
-        try {
-          const { data, error } = await supabase
-            .from('pos_wash_dry_tickets')
-            .select('ticket_number')
-            .order('ticket_number', { ascending: false })
-            .limit(1)
-            .single();
-          const lastTicketNumber = data?.ticket_number ? parseInt(data.ticket_number, 10) : 0;
-          localStorage.setItem('last_ticket_number', lastTicketNumber);
-        } catch (e) {
-          console.error('Failed to fetch last ticket number from Supabase on mount:', e);
-        }
-      }
-    };
-    fetchLastTicketNumber();
-  }, []);
+  // Ticket numbers are managed through Save Progress button only
 
   // At the top of EmployeePOSTerminal (inside the component):
   useEffect(() => {
@@ -1746,6 +2658,11 @@ const EmployeePOSTerminal = () => {
       }
     })();
   }, []);
+
+  // No automatic localDB check on page visit - everything happens through Save Progress button
+
+  // Helper to get today's date in YYYY-MM-DD
+  const getTodayDate = () => new Date().toISOString().split('T')[0];
 
   if (loading && !currentSession) {
     return (
@@ -1832,13 +2749,13 @@ const EmployeePOSTerminal = () => {
                   {!loadingEmployees && employeeList?.length === 0 && (
                     <p className="text-sm text-amber-600 bg-amber-50 px-3 py-2 rounded-lg">
                       <Icon name="AlertTriangle" size={16} className="inline mr-2" />
-                      No data loaded from localDB. Press <strong>Save Progress</strong> button to load from online database.
+                      No employees loaded.
                     </p>
                   )}
                   {!loadingEmployees && employeeList?.length > 0 && (
-                    <p className="text-sm text-green-600 bg-green-50 px-3 py-2 rounded-lg">
-                      <Icon name="CheckCircle" size={16} className="inline mr-2" />
-                      {employeeList?.length} employees loaded successfully
+                    <p className="text-sm text-blue-600 bg-blue-50 px-3 py-2 rounded-lg">
+                      <Icon name="Info" size={16} className="inline mr-2" />
+                      Please select employee.
                     </p>
                   )}
                 </div>
@@ -1923,11 +2840,49 @@ const EmployeePOSTerminal = () => {
                 </div>
                 <h2 className="text-xl font-semibold text-slate-800">Wash & Dry Tickets</h2>
               </div>
-              <WashDryTickets 
-                tickets={tickets}
-                onFieldClick={handleFieldClick}
+              {/* Ticket History */}
+              <TicketHistory 
+                tickets={allStoredTickets || []}
+                pageSize={10}
+              />
+              {/* Debug output */}
+              {process.env.NODE_ENV === 'development' && (
+                <div className="hidden">
+                  <pre>{JSON.stringify({ allStoredTickets }, null, 2)}</pre>
+                </div>
+              )}
+              
+              {/* Current Ticket Input */}
+              <TicketInput 
+                ticket={tickets[0]}
+                onTicketNumberChange={(value) => {
+                  setCurrentInputValue(value);
+                  handleFieldChange('ticketNumber', value, tickets[0].id);
+                }}
+                onWashChange={(value) => {
+                  setCurrentInputValue(value);
+                  handleFieldChange('wash', value, tickets[0].id);
+                }}
+                onDryChange={(value) => {
+                  setCurrentInputValue(value);
+                  handleFieldChange('dry', value, tickets[0].id);
+                }}
+                isInputMode={isInputMode}
                 activeInput={activeInput}
-                getDisplayValue={getDisplayValue}
+                currentInputValue={currentInputValue}
+                onInputClick={(field) => {
+                  setIsInputMode(true);
+                  setActiveInput(field);
+                  setCurrentInputValue(tickets[0][field]?.toString() || '');
+                }}
+                onInputBlur={() => {
+                  setTimeout(() => {
+                    setIsInputMode(false);
+                    setActiveInput(null);
+                  }, 100);
+                }}
+                onInsert={handleInsertTicket}
+                loading={loading}
               />
             </div>
 

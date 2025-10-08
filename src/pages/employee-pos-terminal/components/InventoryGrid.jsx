@@ -14,7 +14,6 @@ const InventoryGrid = ({ items = [], onFieldClick, activeInput, getDisplayValue 
         // Ensure we return a valid value even if getDisplayValue returns undefined
         return value !== undefined ? value : (item[field] || 0);
       } catch (error) {
-        console.error('Error in getDisplayValue:', error);
         return item[field] || 0;
       }
     }

@@ -1,4 +1,4 @@
-import { localDB } from './localDB';
+import { localDB } from './localDB.jsx';
 
 export const InventoryService = {
   async fetchAll() {

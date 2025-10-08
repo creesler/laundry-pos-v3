@@ -36,7 +36,16 @@ const WashDryTickets = ({ tickets, onFieldClick, activeInput, getDisplayValue })
                     <div className="w-8 h-8 bg-gradient-to-br from-cyan-100 to-cyan-200 rounded-lg flex items-center justify-center">
                       <Icon name="FileText" size={14} className="text-cyan-600" />
                     </div>
-                    <span className="font-medium text-slate-800">#{ticket?.ticketNumber}</span>
+                    <button
+                      onClick={() => handleFieldClick(ticket?.id, 'ticketNumber')}
+                      className={`w-24 h-10 rounded-lg border-2 transition-all font-medium ${
+                        isFieldActive(ticket?.id, 'ticketNumber') 
+                          ? 'border-blue-500 bg-blue-50 text-blue-700 shadow-md' 
+                          : 'border-slate-200 bg-white hover:border-slate-300 text-slate-600'
+                      }`}
+                    >
+                      #{getDisplayValue('tickets', ticket?.id, 'ticketNumber', ticket?.ticketNumber)}
+                    </button>
                   </div>
                 </td>
                 <td className="py-4 px-4 text-center">

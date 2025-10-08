@@ -1,5 +1,5 @@
 import { supabase } from '../lib/supabase';
-import { localDB } from './localDB';
+import { localDB } from './localDB.jsx';
 
 class POSService {
   // Track sync state

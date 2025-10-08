@@ -1,5 +1,5 @@
 // Service for handling employee-related operations in an offline-first manner
-import { localDB } from './localDB';
+import { localDB } from './localDB.jsx';
 
 class EmployeeService {
   constructor() {
