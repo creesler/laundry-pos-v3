@@ -189,7 +189,7 @@ const EmployeePOSTerminal = () => {
     }));
   };
 
-  // Handle inserting a new ticket
+  // Handle inserting a new ticket - restored original working code
   const handleInsertTicket = async () => {
     try {
       setLoading(true);
@@ -209,26 +209,11 @@ const EmployeePOSTerminal = () => {
         return;
       }
 
-      // Get or create session for ticket
-      let session = await localDB.getSessionByEmployeeAndDate(selectedEmployee, getTodayDate());
-      if (!session) {
-        // Create new session if none exists
-        session = {
-          id: crypto.randomUUID(),
-          created_at: new Date().toISOString(),
-          session_date: getTodayDate(),
-          employee_id: selectedEmployee,
-          status: 'active'
-        };
-        await localDB.storeSession(session);
-        setCurrentSession(session);
-      }
-
-      // Create new ticket with session ID
+      // Create new ticket with current session
       const newTicket = {
         ...currentTicket,
         id: crypto.randomUUID(),
-        pos_session_id: session.id,
+        pos_session_id: currentSession?.id,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
       };
@@ -236,20 +221,11 @@ const EmployeePOSTerminal = () => {
       // Save to localDB
       await localDB.storeTickets([newTicket]);
 
-      // Load all tickets again to ensure we have the latest
-      const allTickets = await localDB.getAllTickets();
-      const validTickets = allTickets.filter(ticket => 
-        ticket.id !== 'message' &&
-        ticket.pos_session_id === currentSession?.id && // Only show tickets for current session
-        (ticket.ticketNumber || ticket.ticket_number) &&
-        ((ticket.wash > 0 || ticket.dry > 0) ||
-         (ticket.wash_amount > 0 || ticket.dry_amount > 0))
-      ).sort((a, b) => {
-        const dateA = new Date(a.created_at || 0);
-        const dateB = new Date(b.created_at || 0);
-        return dateB - dateA; // Most recent first
+      // Add to history
+      setAllStoredTickets(prev => {
+        const updatedTickets = [newTicket, ...prev.filter(t => t.id !== 'message')];
+        return updatedTickets.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
       });
-      setAllStoredTickets(validTickets);
 
       // Reset input ticket
       setTickets([{
